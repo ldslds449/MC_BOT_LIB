@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "noImplicitAny": false,
+    "noEmitOnError": true,
+    "removeComments": false,
+    "sourceMap": false,
+    "target": "es6",
+    "outDir": "dist",
+    "moduleResolution":"node",
+    "esModuleInterop": true,
+    "module": "CommonJS",
+    "declaration": true
+  },
+  "include": [
+    "lib/**/*"
+  ]
+}
