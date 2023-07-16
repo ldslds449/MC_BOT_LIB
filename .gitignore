@@ -1,6 +1,6 @@
 .jest/setEnvVars.js
 test.js
-
+bin/*
 
 # Logs
 logs

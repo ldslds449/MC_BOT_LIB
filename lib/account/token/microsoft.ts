@@ -72,7 +72,7 @@ interface MinecraftTokenRequest{
 }
 
 interface MinecraftTokenResponse{
-  username:string;
+  username:string; // UUID
   roles:any[]; // unknown
   access_token:string;
   token_type:string;
@@ -108,6 +108,8 @@ export abstract class MicrosoftTokenHelper extends TokenHelper {
   protected client_id:string;
   protected redirect_uri:string;
 
+  protected UUID:string;
+
   protected MicrosoftTokenURL:string = 'https://login.live.com/oauth20_token.srf';
 
   XboxTokenURL:string = 'https://user.auth.xboxlive.com/user/authenticate';
@@ -139,7 +141,7 @@ export abstract class MicrosoftTokenHelper extends TokenHelper {
       .then((success:AxiosResponse<MicrosoftTokenResponse>) => {
         return success.data;
       }, (fail:AxiosError<MicrosoftTokenError>) => {
-        throw new Error(`Response Error in 'refreshMicrosoftToken(${refreshToken})': ${fail.response.data}, data:${data}`);
+        throw new Error(`Response Error in 'refreshMicrosoftToken(${refreshToken})': ${JSON.stringify(fail.response.data)}, data:${JSON.stringify(data)}`);
       });
   }
 
@@ -211,7 +213,7 @@ export abstract class MicrosoftTokenHelper extends TokenHelper {
       .then((success:AxiosResponse<MinecraftTokenResponse>) => {
         return success.data;
       }, (fail:AxiosError<MinecraftTokenError>) => {
-        throw new Error(`Response Error in 'getMinecraftToken(${xtstToken}, ${userHash})': ${fail.response.data}, data:${data}`);
+        throw new Error(`Response Error in 'getMinecraftToken(${xtstToken}, ${userHash})': ${JSON.stringify(fail.response.data)}, data:${JSON.stringify(data)}`);
       });
   }
 
@@ -228,6 +230,7 @@ export abstract class MicrosoftTokenHelper extends TokenHelper {
       })
       // XSTS Token -> Minecraft Token
       .then((success) => {
+        this.UUID = success.username;
         return success.access_token;
       })
       // Handle reponse error
@@ -277,7 +280,7 @@ export abstract class MicrosoftTokenHelper extends TokenHelper {
         return info.entitlements.find(x => x.name == 'game_minecraft' || x.name == 'product_minecraft') != undefined;
       }, (fail) => {
         console.error(fail.data);
-        throw new Error(`Response Error in 'isAccountValid': error: ${fail}`);
+        throw new Error(`Response Error in 'isAccountValid': error: ${JSON.stringify(fail)}`);
       });
     
   }

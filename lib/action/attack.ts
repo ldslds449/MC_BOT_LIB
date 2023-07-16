@@ -17,14 +17,14 @@ export async function attackEntity(bot:mineflayer.Bot, config:attackConfig):Prom
 
   // check weapon
   bot.updateHeldItem();
-  if(bot.heldItem.name != config.weapon){
+  if(bot.heldItem == null || bot.heldItem.name != config.weapon){
     const weapon = bot.inventory.findInventoryItem(config.weapon, null, false);
     if(weapon) {
       await bot.equip(weapon, 'hand')
     }
   }
 
-  debug(bot.heldItem.displayName);
+  if(bot.heldItem != null) debug(bot.heldItem.displayName);
 
   // find target
   let target:Entity = undefined, target_dist:number = Number.POSITIVE_INFINITY;

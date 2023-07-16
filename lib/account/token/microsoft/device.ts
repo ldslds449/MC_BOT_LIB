@@ -18,7 +18,6 @@ interface DeviceCodeResponse{
 };
 
 export class MicrosoftTokenDeviceHelper extends MicrosoftTokenHelper {
-  client_id:string;
   request_interval:number;
   device_code:string;
 
@@ -50,7 +49,7 @@ export class MicrosoftTokenDeviceHelper extends MicrosoftTokenHelper {
         this.device_code = success.data.device_code;
         return success.data;
       }, (fail:AxiosError<any>) => {
-        throw new Error(`Response Error in 'getAuthCode()': ${fail}, data:${data}`);
+        throw new Error(`Response Error in 'getAuthCode()': ${JSON.stringify(fail)}, data:${JSON.stringify(data)}`);
       });
   }
 
@@ -82,7 +81,7 @@ export class MicrosoftTokenDeviceHelper extends MicrosoftTokenHelper {
                 // keep waiting
                 loop_fn();
               }else{
-                reject(`Response Error in 'loopForAccessToken(${this.timeout}): ${fail.response.data}, data: ${data}'`);
+                reject(`Response Error in 'loopForAccessToken(${this.timeout}): ${JSON.stringify(fail.response.data)}, data: ${JSON.stringify(data)}'`);
               }
             })
         }, this.request_interval * 1000);

@@ -4,14 +4,15 @@
     "noEmitOnError": true,
     "removeComments": false,
     "sourceMap": false,
-    "target": "es6",
+    "target": "ES6",
     "outDir": "dist",
     "moduleResolution":"node",
     "esModuleInterop": true,
-    "module": "CommonJS",
-    "declaration": true
+    "module": "CommonJS", // CommonJS
+    "declaration": true,
   },
   "include": [
-    "lib/**/*"
+    "lib/**/*",
+    "index.ts"
   ]
 }

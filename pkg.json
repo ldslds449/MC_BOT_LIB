@@ -1,0 +1,10 @@
+{
+  "pkg": {
+    "outputPath": "bin/",
+    "scripts": "dist/**/*.js",
+    "assets": [
+      "./node_modules/axios/dist/node/axios.cjs"
+    ],
+    "targets": ["node18-linux-x64", "node18-win-x64"]
+  }
+}

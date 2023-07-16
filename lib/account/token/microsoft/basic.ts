@@ -142,7 +142,7 @@ export class MicrosoftTokenBasicHelper extends MicrosoftTokenHelper {
       .then((success:AxiosResponse<MicrosoftTokenResponse>) => {
         return success.data;
       }, (fail:AxiosError<MicrosoftTokenError>) => {
-        throw new Error(`Response Error in 'getMicrosoftToken': ${fail.response.data}, data:${data}`);
+        throw new Error(`Response Error in 'getMicrosoftToken': ${JSON.stringify(fail.response.data)}, data:${JSON.stringify(data)}`);
       });
   }
 
