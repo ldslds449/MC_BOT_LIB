@@ -69,7 +69,7 @@ const version:string = cfg.version;
 
 // open debug info
 if(cfg.info){
-  require('debug').enabled('MC_BOT_LIB:*');
+  require('debug').enable('MC_BOT_LIB:*');
 }
 
 // create tasks
@@ -218,7 +218,6 @@ async function routine(tasks:((bot:mineflayer.Bot) => Promise<any>)[]){
   bot.instance.once('spawn', async () => {
     console.log("Spawn");
     console.log("Start !!!");
-    console.log(`Action: ${cfg.action}`);
     
     // set move strategy for bot
     let defaultMove = new Movements(bot.instance);
@@ -236,7 +235,7 @@ async function routine(tasks:((bot:mineflayer.Bot) => Promise<any>)[]){
     try{
       while(true){
         for(let i = 0; i < tasks.length; ++i){
-          tasks[i](bot.instance);
+          await tasks[i](bot.instance);
         }
       }
     }catch(err){ console.log(err); };
