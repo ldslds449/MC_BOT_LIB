@@ -15,12 +15,12 @@ interface eatConfig{
 export async function autoEat(bot:mineflayer.Bot, config:eatConfig):Promise<void> {
   const EATTIME = 32; // eat time: 32 ticks
 
-  debug(config);
   debug(`Health: ${bot.health}`, `Food: ${bot.food}`);
 
   // eat condition
   if(bot.food != undefined && bot.health != undefined){
-    if(bot.food < config.threshold.food || bot.health < config.threshold.health){
+    if(bot.food >= 20) return;
+    if(bot.food < config.threshold.food && bot.health < config.threshold.health){
       // check held item
       bot.updateHeldItem();
       let isHeld:boolean;

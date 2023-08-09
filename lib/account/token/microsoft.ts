@@ -278,9 +278,8 @@ export abstract class MicrosoftTokenHelper extends TokenHelper {
         const info_json = JSON.parse(info_string);
         const info = info_json as GameOwnerInfo;
         return info.entitlements.find(x => x.name == 'game_minecraft' || x.name == 'product_minecraft') != undefined;
-      }, (fail) => {
-        console.error(fail.data);
-        throw new Error(`Response Error in 'isAccountValid': error: ${JSON.stringify(fail)}`);
+      }, () => {
+        return false;
       });
     
   }

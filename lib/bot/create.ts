@@ -40,7 +40,7 @@ export class Bot{
 };
 
 export class BotFactory{
-  static MCAuth(ip:string, port:number, username:string, uuid:string, minecraftToken:string, checkTimeoutInterval:number = 30000):Bot {
+  static MCAuth(ip:string, port:number, username:string, uuid:string, minecraftToken:string, checkTimeoutInterval:number = 30000, version:string = "1.20.1"):Bot {
     const config:mineflayer.BotOptions = {
       host: ip,
       port: port,
@@ -56,26 +56,29 @@ export class BotFactory{
       logErrors: true,
       auth: 'mojang',
       skipValidation: true,
-      checkTimeoutInterval: checkTimeoutInterval
+      checkTimeoutInterval: checkTimeoutInterval,
+      version: version
     };
 
     const bot = new Bot();
     bot.instance = mineflayer.createBot(config);
+    bot.instance.version = version;
     return bot;
   }
 
-  static MojongAuth(ip:string, port:number, uuid:string, username:string, clientToken:string, accessToken:string, checkTimeoutInterval:number = 30000):Bot {
+  static MojongAuth(ip:string, port:number, uuid:string, username:string, clientToken:string, accessToken:string, checkTimeoutInterval:number = 30000, version:string = "1.20.1"):Bot {
     throw new Error('[Deprecated] Please use Microsoft account to login');
   }
 
-  static CrackedAuth(ip:string, port:number, username:string, checkTimeoutInterval:number = 30000):Bot {
+  static CrackedAuth(ip:string, port:number, username:string, checkTimeoutInterval:number = 30000, version:string = "1.20.1"):Bot {
     const config:mineflayer.BotOptions = {
       host: ip,
       port: port,
       username: username,
       hideErrors: false,
       logErrors: true,
-      checkTimeoutInterval: checkTimeoutInterval
+      checkTimeoutInterval: checkTimeoutInterval,
+      version: version
     };
 
     const bot = new Bot();

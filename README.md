@@ -22,6 +22,12 @@ npm install
 npm run start
 ```
 
+To show the debug information, type this command before running.
+
+```bash
+export DEBUG=MC_BOT_LIB:*
+```
+
 ## Build
 
 We first convert TypeScript to CommonJS, then use `pkg` to package it to a executable file.

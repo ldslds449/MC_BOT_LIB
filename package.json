@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "start": "ts-node index.ts -c bin/config.yaml -t bin/token.json",
+    "start": "ts-node index.ts -c bin/config.yaml -t bin/token.json 2>&1 | tee log/log",
     "build": "tsc --build",
     "clean": "tsc --build --clean",
     "pkg": "pkg dist/index.js -c pkg.json --compress GZip",
@@ -25,6 +25,8 @@
     "http": "^0.0.1-security",
     "js-yaml": "^4.1.0",
     "mineflayer": "^4.8.1",
+    "mineflayer-pathfinder": "^2.4.4",
+    "mineflayer-web-inventory": "^1.8.4",
     "nanoid": "^3.3.4",
     "pkce-challenge": "^3.0.0",
     "prismarine-registry": "^1.7.0",

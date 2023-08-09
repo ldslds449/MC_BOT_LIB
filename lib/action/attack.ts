@@ -10,21 +10,17 @@ interface attackConfig{
   dynamicView:boolean;
 };
 
-export async function attackEntity(bot:mineflayer.Bot, config:attackConfig):Promise<void> {
+export async function attackEntity(bot:mineflayer.Bot, config:attackConfig):Promise<boolean> {
   const DISTANCE_THRESHOLD = 6;
-
-  debug(config);
 
   // check weapon
   bot.updateHeldItem();
   if(bot.heldItem == null || bot.heldItem.name != config.weapon){
     const weapon = bot.inventory.findInventoryItem(config.weapon, null, false);
     if(weapon) {
-      await bot.equip(weapon, 'hand')
+      await bot.equip(weapon, 'hand');
     }
   }
-
-  if(bot.heldItem != null) debug(bot.heldItem.displayName);
 
   // find target
   let target:Entity = undefined, target_dist:number = Number.POSITIVE_INFINITY;
@@ -44,12 +40,14 @@ export async function attackEntity(bot:mineflayer.Bot, config:attackConfig):Prom
 
   // attack
   if(target != undefined){
+    debug(`Attack ${target.displayName} At ${target.position} With ${bot.heldItem.displayName}`);
     if(config.dynamicView){
       bot.lookAt(target.position);
     }
     bot.attack(target);
   }
-  await bot.waitForTicks(config.delay)
+  await bot.waitForTicks(config.delay);
+  return target != undefined;
 }
 
 
