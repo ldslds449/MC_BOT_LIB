@@ -5,7 +5,7 @@ import { Item } from 'prismarine-item'
 import { Window } from 'prismarine-windows'
 import { Entity } from 'prismarine-entity'
 import { goals } from 'mineflayer-pathfinder'
-import { isBetween } from '../util/inside';
+import { isBetween, inside } from '../util/inside';
 
 const debug = require('debug')('MC_BOT_LIB:digBlocks');
 
@@ -81,13 +81,13 @@ async function changeTool(bot:mineflayer.Bot, tool:string, durability_percentage
       if(ender_chest){
         debug('Open ender chest');
         bot.equip(ender_chest, 'hand');
-        const ender_window = await new Promise<Window>(async (resolve) => {
+        const ender_window = await new Promise<mineflayer.Chest>(async (resolve) => {
           bot.once('windowOpen', (window:Window) => {
             debug('Window Open');
             debug(`Window: ${window.title}`);
             bot.stopDigging();
             bot.setControlState('sneak', false);
-            resolve(window);
+            resolve(window as Chest);
           });
           bot.setControlState('sneak', true);
           await bot.dig(bot.findBlock({matching: bot.registry.itemsByName['air'].id, count: 1}))
@@ -101,13 +101,34 @@ async function changeTool(bot:mineflayer.Bot, tool:string, durability_percentage
             ender_window.inventoryEnd, null);
           if(old_tool){
             debug(`Old Tool: ${old_tool.displayName} At ${old_tool.slot}`);
-            await (ender_window as Chest).deposit(old_tool.type, old_tool.metadata, 1);
+            await bot.transfer({
+              window: ender_window,
+              itemType: old_tool.type,
+              metadata: null,
+              count: 1,
+              nbt: old_tool.nbt,
+              sourceStart: ender_window.inventoryStart,
+              sourceEnd: ender_window.inventoryEnd,
+              destStart: 0,
+              destEnd: ender_window.inventoryStart
+            });
           }else{
             debug('No old tool');
           }
           // withdraw new tool
           debug(`Withdraw New Tool: ${new_tool.displayName} (${new_tool.type}, ${new_tool.metadata})`);
           await (ender_window as Chest).withdraw(new_tool.type, new_tool.metadata, 1);
+          await bot.transfer({
+            window: ender_window,
+            itemType: new_tool.type,
+            metadata: null,
+            count: 1,
+            nbt: new_tool.nbt,
+            sourceStart: 0,
+            sourceEnd: ender_window.inventoryStart,
+            destStart: ender_window.inventoryStart,
+            destEnd: ender_window.inventoryEnd
+          });
           bot.closeWindow(ender_window);
           // equip new tool
           const final_tool = findTool(bot, bot.inventory, toolArray, bot.inventory.inventoryStart,
@@ -332,8 +353,10 @@ export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Prom
   for(const id in bot.entities){ 
     if(bot.entities[id].objectType == 'Item' &&
       bot.entities[id].position.y <= bot.entity.position.y &&
-      bot.registry.items[bot.entities[id].getDroppedItem().type] != undefined){ 
-      debug(bot.entities[id].getDroppedItem().displayName);
+      bot.registry.items[bot.entities[id].getDroppedItem().type] != undefined &&
+      inside(config.range[0], config.range[1], bot.entities[id].position) &&
+      bot.entities[id].getDroppedItem().name != 'player_head'){ 
+      debug(bot.entities[id].getDroppedItem());
       dropped_item.push(bot.entities[id]); 
     }
   }
