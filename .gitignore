@@ -1,6 +1,8 @@
 .jest/setEnvVars.js
 test.js
 bin/*
+log/*
+TODO
 
 # Logs
 logs

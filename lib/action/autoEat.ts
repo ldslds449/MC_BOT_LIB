@@ -2,7 +2,7 @@ import mineflayer from 'mineflayer'
 
 const debug = require('debug')('MC_BOT_LIB:autoEat');
 
-interface eatConfig{
+export interface eatConfig{
   food:string[];
   threshold:{
     health:number;
@@ -12,7 +12,7 @@ interface eatConfig{
   offhand:boolean;
 };
 
-export async function autoEat(bot:mineflayer.Bot, config:eatConfig):Promise<void> {
+export async function autoEat(bot:mineflayer.Bot, config:eatConfig):Promise<boolean> {
   const EATTIME = 32; // eat time: 32 ticks
 
   debug(`Health: ${bot.health}`, `Food: ${bot.food}`);
@@ -51,17 +51,20 @@ export async function autoEat(bot:mineflayer.Bot, config:eatConfig):Promise<void
       debug('Start Eating');
 
       let timer:NodeJS.Timeout;
-      const timeout_promise = new Promise<void>((_, reject) => {
+      const timeout_promise = new Promise<boolean>((resolve) => {
         timer = setTimeout(() => {
-          bot.deactivateItem();
+          bot.deactivateItem();  // stop eating
           debug('Cancel Eating');
-          reject();
+          resolve(false);
         }, EATTIME * 2 * 50); // 1 tick = 0.05 (s) = 50 (ms)
       });
-      return await Promise.race([bot.consume(), timeout_promise])
-        .finally(() => {
-          clearTimeout(timer);
-        });
+      
+      return Promise.race([timeout_promise, bot.consume().then(() => {
+        return true;
+      }).catch(() => {
+        return false;
+      })]);
     }
   }
+  return false;  // do not eat anything
 }

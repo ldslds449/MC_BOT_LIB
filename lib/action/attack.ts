@@ -3,7 +3,7 @@ import { Entity } from 'prismarine-entity'
 
 const debug = require('debug')('MC_BOT_LIB:attack');
 
-interface attackConfig{
+export interface attackConfig{
   entity:string[];
   delay:number; // tick
   weapon:string;
@@ -16,7 +16,8 @@ export async function attackEntity(bot:mineflayer.Bot, config:attackConfig):Prom
   // check weapon
   bot.updateHeldItem();
   if(bot.heldItem == null || bot.heldItem.name != config.weapon){
-    const weapon = bot.inventory.findInventoryItem(config.weapon, null, false);
+    const weapon = bot.inventory.findInventoryItem(
+      bot.registry.itemsByName[config.weapon].id, null, false);
     if(weapon) {
       await bot.equip(weapon, 'hand');
     }

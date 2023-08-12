@@ -8,11 +8,11 @@ import { program } from 'commander';
 import { BotFactory } from './lib/bot/create';
 import { MicrosoftTokenDeviceHelper } from './lib/account/token/microsoft/device';
 import { Token } from './lib/account/helper';
-import { attackEntity } from './lib/action/attack';
+import { attackEntity, attackConfig } from './lib/action/attack';
 import { craft } from './lib/action/autoCraft';
 import { treeChop } from './lib/action/treeChop';
-import { digBlocks } from './lib/action/digBlocks';
-import { autoEat } from './lib/action/autoEat';
+import { digBlocks, digBlocksConfig } from './lib/action/digBlocks';
+import { autoEat, eatConfig } from './lib/action/autoEat';
 import { sleep } from './lib/util/sleep';
 
 import { pathfinder, SafeBlock } from 'mineflayer-pathfinder'
@@ -78,37 +78,47 @@ function createTasks():((bot:mineflayer.Bot) => Promise<any>)[]{
   let tasks:((bot:mineflayer.Bot) => Promise<any>)[] = [];
   for(let i = 0; i < actions.length; ++i){
     if(actions[i] == Action.Attack){
+      const config:attackConfig = {
+        entity: cfg.Attack.enemies,
+        delay: cfg.Attack.delay,
+        weapon: cfg.Attack.weapon,
+        dynamicView: true
+      }
+
       tasks.push(async (bot:mineflayer.Bot) => {
-        console.log('> Attack <');
-        return await attackEntity(bot, {
-          entity: cfg.Attack.enemies,
-          delay: cfg.Attack.delay,
-          weapon: cfg.Attack.weapon,
-          dynamicView: true
-        });
+        let attacked:boolean;
+        do{
+          console.log('> Attack <');
+          attacked = await attackEntity(bot, config);
+        }while(attacked);  // try to attack again
       });
     }else if(actions[i] == Action.AutoEat){
+      const config:eatConfig = {
+        food: cfg.AutoEat.foods,
+        threshold:{
+          health: cfg.AutoEat.Threshold.food,
+          food: cfg.AutoEat.Threshold.health
+        },
+        onlyQuickBarSlot: cfg.AutoEat.onlyQuickBarSlot,
+        offhand: cfg.AutoEat.offhand
+      }
+
       tasks.push(async (bot:mineflayer.Bot) => {
-        console.log('> AutoEat <');
-        await autoEat(bot, {
-          food: cfg.AutoEat.foods,
-          threshold:{
-            health: cfg.AutoEat.Threshold.food,
-            food: cfg.AutoEat.Threshold.health
-          },
-          onlyQuickBarSlot: cfg.AutoEat.onlyQuickBarSlot,
-          offhand: cfg.AutoEat.offhand
-        });
+        let ate:boolean;
+        do{
+          console.log('> AutoEat <');
+          ate = await autoEat(bot, config);
+        }while(ate);  // try to eat again
       });
     }else if(actions[i] == Action.DigBlocks){
       let target_blocks:string[] = [];
+      const registry = loader(version);
       for(let i = 0; i < cfg.DigBlocks.target_blocks.length; ++i){
         if((cfg.DigBlocks.target_blocks[i] as string).endsWith('*')){
           const key = (cfg.DigBlocks.target_blocks[i] as string).replace('*', '');
-          const registry = loader(version);
           for(let k = 0; k < registry.itemsArray.length; ++k){
-            if(registry.itemsArray[i].name.includes(key)){
-              target_blocks.push(registry.itemsArray[i].name);
+            if(registry.itemsArray[k].name.includes(key)){
+              target_blocks.push(registry.itemsArray[k].name);
             }
           }
         }else{
@@ -127,20 +137,22 @@ function createTasks():((bot:mineflayer.Bot) => Promise<any>)[]{
           Number(cfg.DigBlocks.range[1][1]), 
           Number(cfg.DigBlocks.range[1][2]));
 
+      const config:digBlocksConfig = {
+        target_blocks: target_blocks,
+        delay: Number(cfg.DigBlocks.delay), // tick
+        maxDistance: cfg.DigBlocks.maxDistance,
+        range: [bottom_corner, upper_corner],
+        terminate_entities: cfg.DigBlocks.terminate_entities,
+        danger_radius: cfg.DigBlocks.danger_radius,
+        inventory_empty_min: cfg.DigBlocks.inventory_empty_min,
+        item_container: cfg.DigBlocks.item_container,
+        durability_percentage_threshold: cfg.DigBlocks.durability_percentage_threshold
+      };
+
       tasks.push(async (bot:mineflayer.Bot) => {
         console.log('> DigBlocks <');
-        await digBlocks(bot, {
-          target_blocks: target_blocks,
-          delay: Number(cfg.DigBlocks.delay), // tick
-          maxDistance: cfg.DigBlocks.maxDistance,
-          range: [bottom_corner, upper_corner],
-          terminate_entities: cfg.DigBlocks.terminate_entities,
-          danger_radius: cfg.DigBlocks.danger_radius,
-          inventory_empty_min: cfg.DigBlocks.inventory_empty_min,
-          item_container: cfg.DigBlocks.item_container,
-          durability_percentage_threshold: cfg.DigBlocks.durability_percentage_threshold
-        });
-      })
+        await digBlocks(bot, config);
+      });
     }
   }
   return tasks;
@@ -183,6 +195,24 @@ async function routine(tasks:((bot:mineflayer.Bot) => Promise<any>)[]){
     });
   }
   bot.instance.loadPlugin(pathfinder);
+
+  // run_all_tasks
+  async function run_all_tasks(){
+    // wait for finishing loading chunks
+    await bot.instance.waitForChunksToLoad();
+    await sleep(1000);
+
+    // run tasks
+    try{
+      while(true){
+        for(let i = 0; i < tasks.length; ++i){
+          await tasks[i](bot.instance);
+        }
+      }
+    }catch(err){ console.log(err); };
+
+    bot.close("Finish");
+  }
   
   // set event listener
   bot.instance.once('login', () => {
@@ -195,7 +225,8 @@ async function routine(tasks:((bot:mineflayer.Bot) => Promise<any>)[]){
     console.error(err);
   });
   bot.instance.on('playerCollect', (collector, collected) => {
-    if (collector.type === 'player') {
+    if (collector.type === 'player' && collected != undefined && collected.objectType == 'Item' &&
+      collector.uuid == bot.instance.entity.uuid) {
       const item = collected.getDroppedItem();
       if(item) debug(`Collected ${item.count} ${item.displayName}`);
     }
@@ -203,9 +234,13 @@ async function routine(tasks:((bot:mineflayer.Bot) => Promise<any>)[]){
   bot.instance.on("message", (jsonMsg, position) => {
     debug(jsonMsg.toString());
     if(cfg.TP){
-      if(jsonMsg.toString().includes('傳送')){
+      if(jsonMsg.toString().includes('想要你傳送到') ||
+        jsonMsg.toString().includes('想要傳送到')){
         bot.instance.chat('/tok');
       }
+    }
+    if(jsonMsg.toString() == '/work'){
+      run_all_tasks();
     }
   });
   bot.instance.on('end', async () => {
@@ -222,25 +257,13 @@ async function routine(tasks:((bot:mineflayer.Bot) => Promise<any>)[]){
     // set move strategy for bot
     let defaultMove = new Movements(bot.instance);
     defaultMove.maxDropDown = 1024;
+    defaultMove.canDig = false;
     defaultMove.exclusionAreasPlace = [(block:SafeBlock):number => {
       return 100;
     }];
     bot.instance.pathfinder.setMovements(defaultMove);
-    
-    // wait for finishing loading chunks
-    await bot.instance.waitForChunksToLoad();
-    await sleep(1000);
 
-    // run tasks
-    try{
-      while(true){
-        for(let i = 0; i < tasks.length; ++i){
-          await tasks[i](bot.instance);
-        }
-      }
-    }catch(err){ console.log(err); };
-
-    bot.close("Finish");
+    await run_all_tasks();
   });
 }
 

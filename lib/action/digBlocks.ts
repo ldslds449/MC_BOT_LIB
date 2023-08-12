@@ -1,14 +1,15 @@
-import mineflayer from 'mineflayer'
+import mineflayer, { Chest } from 'mineflayer'
 import { Vec3 } from 'vec3'
 import { Block } from 'prismarine-block'
 import { Item } from 'prismarine-item'
+import { Window } from 'prismarine-windows'
 import { Entity } from 'prismarine-entity'
 import { goals } from 'mineflayer-pathfinder'
 import { sleep } from '../util/sleep';
 
 const debug = require('debug')('MC_BOT_LIB:digBlocks');
 
-interface digBlocksConfig{
+export interface digBlocksConfig{
   target_blocks:string[];
   delay:number; // tick
   maxDistance:number;
@@ -20,15 +21,39 @@ interface digBlocksConfig{
   durability_percentage_threshold:number;
 };
 
-function remainDurability(bot:mineflayer.Bot, item:Item){
+function remainDurabilityPercent(bot:mineflayer.Bot, item:Item){
   const maxDurability = bot.registry.itemsByName[item.name].maxDurability;
-  return (maxDurability-item.durabilityUsed)/maxDurability;
+  return Math.round((maxDurability-item.durabilityUsed)/maxDurability*100)/100;
 }
 
-async function changeTool(bot:mineflayer.Bot, tool:string, durability_percentage_threshold:number){
+function findTool(bot:mineflayer.Bot, window:Window, toolArray:string[], 
+    start_idx:number, end_idx:number, durability_percentage_threshold:number):Item{
+  // find each type tool in order
+  for(let i = 0; i < toolArray.length; ++i){
+    let start_find_idx = start_idx;
+    while(start_find_idx < end_idx){
+      const result = window.findItemRangeName(start_find_idx, end_idx, 
+        toolArray[i], null, false);
+      if(result) {
+        // check the durability
+        if(durability_percentage_threshold == undefined || 
+          remainDurabilityPercent(bot, result) > durability_percentage_threshold){  
+          return result;
+        }
+        start_find_idx = result.slot+1;
+      }else{
+        break;
+      }
+    }
+  }
+  return null;
+}
+
+async function changeTool(bot:mineflayer.Bot, tool:string, durability_percentage_threshold:number):Promise<string> {
   // check the tool
   bot.updateHeldItem();
-  if(bot.heldItem == null || !bot.heldItem.name.includes(tool)){
+  if(bot.heldItem == null || !bot.heldItem.name.includes(tool) || 
+    remainDurabilityPercent(bot, bot.heldItem) <= durability_percentage_threshold){
     // get tool list
     const tool_dict = {
       'axe': ['netherite_axe', 'golden_axe', 'diamond_axe', 'iron_axe', 'stone_axe', 'wooden_axe'],
@@ -42,30 +67,68 @@ async function changeTool(bot:mineflayer.Bot, tool:string, durability_percentage
       debug(`Can't find tool ${tool}`);
       toolArray = tool_dict['pickaxe'];
     }
-    // find tool in order
-    for(let i = 0; i < toolArray.length; ++i){
-      let start_find_idx = bot.inventory.inventoryStart;
-      while(start_find_idx < bot.inventory.inventoryEnd){
-        const result = bot.inventory.findItemRangeName(start_find_idx, bot.inventory.inventoryEnd, 
-          toolArray[i], null, false);
-        if(result) {
-          // check the durability
-          const remain_durability_pct = remainDurability(bot, result);
-          if(remain_durability_pct > durability_percentage_threshold){  
-            await bot.equip(result, 'hand');
-            break;
+    // find tool
+    const tool_item = findTool(bot, bot.inventory, toolArray, bot.inventory.inventoryStart, 
+      bot.inventory.inventoryEnd, durability_percentage_threshold);
+    if(tool_item){
+      debug(`Found Tool ${tool_item.displayName}`);
+      await bot.equip(tool_item, 'hand');
+    }else{
+      debug(`There is no suitable tool...`);
+      // check ender chest
+      const ender_chest = bot.inventory.findInventoryItem(
+        bot.registry.itemsByName['ender_chest'].id, null, true);
+      if(ender_chest){
+        debug('Open ender chest');
+        bot.equip(ender_chest, 'hand');
+        const ender_window = await new Promise<Window>(async (resolve) => {
+          bot.once('windowOpen', (window:Window) => {
+            debug('Window Open');
+            debug(`Window: ${window.title}`);
+            bot.stopDigging();
+            bot.setControlState('sneak', false);
+            resolve(window);
+          });
+          bot.setControlState('sneak', true);
+          await bot.dig(bot.findBlock({matching: bot.registry.itemsByName['air'].id, count: 1}))
+        });
+        // change the tool
+        const new_tool = findTool(bot, ender_window, toolArray, 0, ender_window.inventoryStart, 
+          durability_percentage_threshold);
+        debug(`New Tool: ${new_tool.displayName} At ${new_tool.slot}`);
+        if(new_tool){
+          const old_tool = findTool(bot, ender_window, toolArray, ender_window.inventoryStart,
+            ender_window.inventoryEnd, null);
+          if(old_tool){
+            debug(`Old Tool: ${old_tool.displayName} At ${old_tool.slot}`);
+            await (ender_window as Chest).deposit(old_tool.type, old_tool.metadata, 1);
+          }else{
+            debug('No old tool');
           }
-          start_find_idx = result.slot+1;
+          // withdraw new tool
+          await (ender_window as Chest).withdraw(new_tool.type, new_tool.metadata, 1);
+          bot.closeWindow(ender_window);
+          // equip new tool
+          const final_tool = findTool(bot, bot.inventory, toolArray, bot.inventory.inventoryStart,
+            bot.inventory.inventoryEnd, durability_percentage_threshold);
+          debug(`Final Tool: ${final_tool.displayName}`);
+          await bot.equip(final_tool, 'hand');
+          debug('Finish Changing');
         }else{
-          break;
+          debug('There is no new tool to exchange');
+          bot.closeWindow(ender_window);
         }
+      }else{
+        debug("Can't find the ender chest QAQ");
       }
     }
   }
   if(bot.heldItem != null) {
-    debug(`Bot held ${bot.heldItem.displayName} with ${remainDurability(bot, bot.heldItem)} durability`);
+    debug(`Bot held ${bot.heldItem.displayName} with ${remainDurabilityPercent(bot, bot.heldItem)} durability`);
+    return bot.heldItem.displayName;
   }else{
     debug("Bot doesn't held anything.");
+    return '???';
   }
 }
 
@@ -139,15 +202,15 @@ async function onlyWaitForSpecTime(task:Promise<any>, time_limit:number, callbac
   ]);
 }
 
-export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Promise<void> {
+export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Promise<boolean> {
   // find all blocks nearby
   debug("============ Find Target ============");
   let targets = findBlocks(bot, config.target_blocks, 
     [config.maxDistance, config.maxDistance, config.maxDistance], config.range, true);
   debug(`Find ${targets.length} targets`);
-  targets.sort((a:Block, b:Block) => {
+  targets.sort((a:Block, b:Block) => {  // sort from farthest to closest
     if(b.position.y != a.position.y){
-      return b.position.y-a.position.y;
+      return b.position.y-a.position.y;  // y: descending
     }else{
       return bot.entity.position.xzDistanceTo(b.position) - bot.entity.position.xzDistanceTo(a.position);
     }
@@ -182,7 +245,6 @@ export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Prom
           bot.chat('/ctop');
         });
         debug(`Location: ${bot.entity.position}`);
-        // targets.push(high_targets[i]);
         break;
       }
     }
@@ -194,15 +256,20 @@ export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Prom
     debug("============ Walk ============");
     // find blocks with a larger range
     let targets:Block[] = [];
-    for(let i = 2; i <= 10; ++i){
+    const maxDist = (idx:number) => Math.max(
+      Math.abs(config.range[0].toArray()[idx] - bot.entity.position.toArray()[idx]), 
+      Math.abs(config.range[1].toArray()[idx] - bot.entity.position.toArray()[idx]));
+    const maxRatio = Math.ceil(Math.max(maxDist(0), maxDist(1), maxDist(2)) / config.maxDistance);
+    debug(`Max Ratio: ${maxRatio}`);
+    for(let i = 2; i <= maxRatio; ++i){
       targets = findBlocks(bot, config.target_blocks, 
         [config.maxDistance*i, config.maxDistance*i, config.maxDistance*i], config.range, false);
       if(targets.length > 0) break;
     }
     if(targets.length == 0){
-      // bot.chat('HELP !!!');
-      // throw new Error("Can't find any target");
-      return;
+      bot.chat("I can't find any target, so I quit.");
+      debug("I can't find any target, so I quit.");
+      return false;
     }
     // select one randomly
     const random_target = targets[Math.floor(Math.random() * targets.length)];
@@ -245,8 +312,8 @@ export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Prom
       // dig
       let tool = targets[i].material.replace('mineable/', '');
       if(tool == 'wool') tool = 'shears';
-      debug('Check Tool');
-      await changeTool(bot, tool, config.durability_percentage_threshold);
+      debug(`Check ${targets[i].material} to Dig ${targets[i].displayName}`);
+      tool = await changeTool(bot, tool, config.durability_percentage_threshold);
       try {
         debug(`Dig Target ${targets[i].displayName} At ${targets[i].position} Use ${tool}`);
         await bot.dig(targets[i]);
@@ -254,32 +321,37 @@ export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Prom
       } catch (err) {
         debug(err); // Handle errors, if any
       }
-      await bot.waitForTicks(config.delay);
+      // await bot.waitForTicks(config.delay);
     }
   }
 
   // collect
   debug("============ Collect ============");
-  while(true){
+  let collect_loop = 0;
+  while(collect_loop < 20){
     if(Object.keys(bot.entities).length == 0) break;
     if(bot.inventory.emptySlotCount() < config.inventory_empty_min) break;
-    let found = false;
-    for(const id in bot.entities){
-      const en = bot.entities[id];
-      if(en.objectType == 'Item' && bot.entity.position.y == en.position.y){
-        found = true;
-        debug(`Collect ${en.displayName} At ${en.position}`);
-        await onlyWaitForSpecTime(bot.pathfinder.goto(
-          new goals.GoalNear(en.position.x, en.position.y, en.position.z, 0.5)), 20*1000, () => {
-            bot.pathfinder.stop();
-            debug('Exceed Time Limit, Stop Moving ~');
-        });
-        await bot.waitForTicks(config.delay * 2);
-        debug("Collect Done");
-        break;  // find again
+    let dropped_item:Entity[] = [];
+    for(const id in bot.entities){ 
+      if(bot.entities[id].objectType == 'Item' &&
+        bot.entities[id].position.y <= bot.entity.position.y &&
+        bot.registry.items[bot.entities[id].getDroppedItem().type] != undefined){ 
+        debug(bot.entities[id].getDroppedItem().displayName);
+        dropped_item.push(bot.entities[id]); 
       }
     }
-    if(!found) break;
+    debug(`Dropped Item Count: ${dropped_item.length}`);
+    if(dropped_item.length == 0) break;
+    const en = dropped_item.shift();
+    debug(`Collect ${en.displayName} At ${en.position}`);
+    await onlyWaitForSpecTime(bot.pathfinder.goto(
+      new goals.GoalNear(en.position.x, en.position.y, en.position.z, 0)), 10*1000, () => {
+        bot.pathfinder.stop();
+        debug('Exceed Time Limit, Stop Moving ~');
+    });
+    await bot.waitForTicks(8);
+    debug("Collect Done");
+    collect_loop++;
   }
 
   // put items
@@ -287,7 +359,8 @@ export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Prom
   if(bot.inventory.emptySlotCount() < config.inventory_empty_min){
     debug("============ Put Items ============");
     debug("Find Box");
-    const box = bot.inventory.findInventoryItem(config.item_container, null, true);
+    const box = bot.inventory.findInventoryItem(
+      bot.registry.itemsByName[config.item_container].id, null, true);
     if(box){
       debug("Equip Box");
       await bot.equip(box, 'hand');
@@ -321,11 +394,12 @@ export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Prom
       debug("Start Deposit");
       await depositItems(chest, deposit_items);
       debug("Finish Deposit");
-      chest.close();
+      bot.closeWindow(chest);
     }else{
       debug("Can't find any box !!!");
     }
   }
 
   await bot.waitForTicks(config.delay);
+  return true;
 }
