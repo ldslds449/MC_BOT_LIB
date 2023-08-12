@@ -212,6 +212,7 @@ async function routine(tasks:((bot:mineflayer.Bot) => Promise<any>)[]){
   bot.instance.loadPlugin(pathfinder);
 
   // run_all_tasks
+  let keep_running = true;
   async function run_all_tasks(){
     // wait for finishing loading chunks
     await bot.instance.waitForChunksToLoad();
@@ -219,14 +220,12 @@ async function routine(tasks:((bot:mineflayer.Bot) => Promise<any>)[]){
 
     // run tasks
     try{
-      while(true){
+      while(keep_running){
         for(let i = 0; i < tasks.length; ++i){
           await tasks[i](bot.instance);
         }
       }
     }catch(err){ console.log(err); };
-
-    bot.close("Finish");
   }
   
   // set event listener
@@ -256,7 +255,10 @@ async function routine(tasks:((bot:mineflayer.Bot) => Promise<any>)[]){
       }
     }
     if(jsonMsg.toString() == '/work'){
+      keep_running = true;
       run_all_tasks();
+    }else if(jsonMsg.toString() == '/stop'){
+      keep_running = false;
     }
   });
   bot.instance.on('end', async () => {
