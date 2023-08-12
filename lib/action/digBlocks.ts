@@ -5,7 +5,7 @@ import { Item } from 'prismarine-item'
 import { Window } from 'prismarine-windows'
 import { Entity } from 'prismarine-entity'
 import { goals } from 'mineflayer-pathfinder'
-import { sleep } from '../util/sleep';
+import { isBetween } from '../util/inside';
 
 const debug = require('debug')('MC_BOT_LIB:digBlocks');
 
@@ -52,7 +52,7 @@ function findTool(bot:mineflayer.Bot, window:Window, toolArray:string[],
 async function changeTool(bot:mineflayer.Bot, tool:string, durability_percentage_threshold:number):Promise<string> {
   // check the tool
   bot.updateHeldItem();
-  if(bot.heldItem == null || !bot.heldItem.name.includes(tool) || 
+  if(bot.heldItem == null || !bot.heldItem.name.includes('_' + tool) || 
     remainDurabilityPercent(bot, bot.heldItem) <= durability_percentage_threshold){
     // get tool list
     const tool_dict = {
@@ -106,6 +106,7 @@ async function changeTool(bot:mineflayer.Bot, tool:string, durability_percentage
             debug('No old tool');
           }
           // withdraw new tool
+          debug(`Withdraw New Tool: ${new_tool.displayName} (${new_tool.type}, ${new_tool.metadata})`);
           await (ender_window as Chest).withdraw(new_tool.type, new_tool.metadata, 1);
           bot.closeWindow(ender_window);
           // equip new tool
@@ -130,13 +131,6 @@ async function changeTool(bot:mineflayer.Bot, tool:string, durability_percentage
     debug("Bot doesn't held anything.");
     return '???';
   }
-}
-
-function isBetween(ptA:number, ptB:number, val:number):boolean {
-  const dist_A = Math.abs(ptA - val);
-  const dist_B = Math.abs(ptB - val);
-  const dist = Math.abs(ptA - ptB);
-  return dist_A + dist_B <= dist;
 }
 
 function findBlocks(bot:mineflayer.Bot, target_blocks:string[]|undefined, limits:number[], range:Vec3[], canDig:boolean):Block[] {
@@ -190,7 +184,7 @@ async function onlyWaitForSpecTime(task:Promise<any>, time_limit:number, callbac
   let timer:NodeJS.Timeout;
   const timeout_promise = new Promise<void>((resolve) => {
     timer = setTimeout(() => {
-      callback();
+      if(callback != undefined) callback();
       resolve();
     }, time_limit);
   }).then(() => { return false; });
@@ -219,15 +213,19 @@ export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Prom
   // find all blocks far away from me
   if(targets.length == 0){
     debug("============ Find High Target ============");
-    const high_targets = findBlocks(bot, config.target_blocks, 
+    let high_targets = findBlocks(bot, config.target_blocks, 
       [config.maxDistance, config.range[1].y-bot.entity.position.y+1, config.maxDistance], 
       config.range, false);
+    // sort from nearest to farthest
+    high_targets.sort((a:Block, b:Block) => {
+      return bot.entity.position.xzDistanceTo(a.position) - bot.entity.position.xzDistanceTo(b.position);
+    });
     debug(`High Target Size: ${high_targets.length}`);
     for(let i = 0; i < high_targets.length; ++i){
       if(high_targets[i].position.y >= bot.entity.position.y){
         debug(`Go to X: ${high_targets[i].position.x}, Z: ${high_targets[i].position.z}`);
         const isArrived = await onlyWaitForSpecTime(bot.pathfinder.goto(
-          new goals.GoalXZ(high_targets[i].position.x, high_targets[i].position.z)), 20*1000, () => {
+          new goals.GoalXZ(high_targets[i].position.x, high_targets[i].position.z)), 15*1000, () => {
             bot.pathfinder.stop();
             debug('Exceed Time Limit, Stop Moving ~');
         });
@@ -237,15 +235,15 @@ export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Prom
         }
         debug(`Location: ${bot.entity.position} Arrived`);
         debug('Use ctop');
-        await new Promise<void>((resolve) => {
+        await onlyWaitForSpecTime(new Promise<void>((resolve) => {
           bot.once('forcedMove', () => {
             resolve();
             debug('Move Success');
           });
           bot.chat('/ctop');
-        });
+        }), 5*1000, null);
         debug(`Location: ${bot.entity.position}`);
-        break;
+        return true;
       }
     }
   }
@@ -271,9 +269,15 @@ export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Prom
       debug("I can't find any target, so I quit.");
       return false;
     }
-    // select one randomly
-    const random_target = targets[Math.floor(Math.random() * targets.length)];
-    const goal_loc = random_target.position;
+    // select closest one
+    let closest_target:Block = targets[0];
+    for(let i = 1; i < targets.length; ++i){
+      if(bot.entity.position.xzDistanceTo(targets[i].position) < 
+          bot.entity.position.xzDistanceTo(closest_target.position)){
+            closest_target = targets[i];
+      }
+    }
+    const goal_loc = closest_target.position;
     debug(`Location: ${bot.entity.position}`);
     debug(`Set Goal to ${goal_loc}`);
     // walk
@@ -281,7 +285,7 @@ export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Prom
     const isArrived = await onlyWaitForSpecTime(bot.pathfinder.goto(
       new goals.GoalLookAtBlock(goal_loc, bot.world), (err)=>{
         debug(err);
-      }), 20*1000, () => {
+      }), 15*1000, () => {
         bot.pathfinder.stop();
         debug('Exceed Time Limit, Stop Moving ~');
     });
@@ -296,17 +300,14 @@ export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Prom
     for(let i = 0; i < targets.length; i++){
       // check danger
       debug('Check Danger');
-      let danger = false;
       for(const id in bot.entities){
         const en = bot.entities[id];
         // check mod type
         if(config.terminate_entities.includes(en.name) && 
             en.position.distanceTo(bot.entity.position) < config.danger_radius){
-          danger = true;
-          break;
+          return true;
         }
       }
-      if(danger) break;
       // check block state
       if(!bot.canDigBlock(targets[i])) continue;
       // dig
@@ -327,21 +328,19 @@ export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Prom
 
   // collect
   debug("============ Collect ============");
-  let collect_loop = 0;
-  while(collect_loop < 20){
-    if(Object.keys(bot.entities).length == 0) break;
-    if(bot.inventory.emptySlotCount() < config.inventory_empty_min) break;
-    let dropped_item:Entity[] = [];
-    for(const id in bot.entities){ 
-      if(bot.entities[id].objectType == 'Item' &&
-        bot.entities[id].position.y <= bot.entity.position.y &&
-        bot.registry.items[bot.entities[id].getDroppedItem().type] != undefined){ 
-        debug(bot.entities[id].getDroppedItem().displayName);
-        dropped_item.push(bot.entities[id]); 
-      }
+  let dropped_item:Entity[] = [];
+  for(const id in bot.entities){ 
+    if(bot.entities[id].objectType == 'Item' &&
+      bot.entities[id].position.y <= bot.entity.position.y &&
+      bot.registry.items[bot.entities[id].getDroppedItem().type] != undefined){ 
+      debug(bot.entities[id].getDroppedItem().displayName);
+      dropped_item.push(bot.entities[id]); 
     }
-    debug(`Dropped Item Count: ${dropped_item.length}`);
-    if(dropped_item.length == 0) break;
+  }
+  debug(`Dropped Item Count: ${dropped_item.length}`);
+  let collect_loop = 0;
+  while(collect_loop < 10 && dropped_item.length > 0){
+    if(bot.inventory.emptySlotCount() < config.inventory_empty_min) break;
     const en = dropped_item.shift();
     debug(`Collect ${en.displayName} At ${en.position}`);
     await onlyWaitForSpecTime(bot.pathfinder.goto(
@@ -349,7 +348,7 @@ export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Prom
         bot.pathfinder.stop();
         debug('Exceed Time Limit, Stop Moving ~');
     });
-    await bot.waitForTicks(8);
+    await bot.waitForTicks(4);
     debug("Collect Done");
     collect_loop++;
   }

@@ -14,6 +14,7 @@ import { treeChop } from './lib/action/treeChop';
 import { digBlocks, digBlocksConfig } from './lib/action/digBlocks';
 import { autoEat, eatConfig } from './lib/action/autoEat';
 import { sleep } from './lib/util/sleep';
+import { inside } from './lib/util/inside';
 
 import { pathfinder, SafeBlock } from 'mineflayer-pathfinder'
 import { Movements } from 'mineflayer-pathfinder'
@@ -154,7 +155,9 @@ function createTasks():((bot:mineflayer.Bot) => Promise<any>)[]{
         // set move strategy for bot
         let defaultMove = new Movements(bot);
         defaultMove.maxDropDown = 1024;
-        defaultMove.canDig = false;
+        defaultMove.exclusionAreasStep = [(block:SafeBlock):number => {
+          return (inside(bottom_corner, upper_corner, block.position)? 0 : 100);
+        }];
         defaultMove.exclusionBreak = (block:SafeBlock):number => {
           return (target_blocks.includes(block.name) ? 0 : 100);
         };
@@ -243,11 +246,12 @@ async function routine(tasks:((bot:mineflayer.Bot) => Promise<any>)[]){
       if(item) debug(`Collected ${item.count} ${item.displayName}`);
     }
   });
-  bot.instance.on("message", (jsonMsg, position) => {
+  bot.instance.on("message", async (jsonMsg, position) => {
     debug(jsonMsg.toString());
     if(cfg.TP){
       if(jsonMsg.toString().includes('想要你傳送到') ||
         jsonMsg.toString().includes('想要傳送到')){
+        await bot.instance.waitForTicks(20);
         bot.instance.chat('/tok');
       }
     }
@@ -258,7 +262,7 @@ async function routine(tasks:((bot:mineflayer.Bot) => Promise<any>)[]){
   bot.instance.on('end', async () => {
     debug('Disconnect');
     if(cfg.reconnect){
-      setTimeout(routine, 10*1000); // wait for 10 second
+      setTimeout(() => { routine(tasks); }, 10*1000); // wait for 10 second
     }
   })
 
