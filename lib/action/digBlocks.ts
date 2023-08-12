@@ -370,6 +370,7 @@ export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Prom
       let loc_block:Block = undefined;
       for(let i = 0; i < loc_block_candidates.length; ++i){
         if(loc_block_candidates[i].name != 'air' && 
+            bot.blockAt(loc_block_candidates[i].position.offset(0, 1, 0)).name == 'air' &&
             loc_block_candidates[i].name != bot.registry.itemsByName[config.item_container].name &&
             bot.canSeeBlock(loc_block_candidates[i]) &&
             bot.entity.position.distanceTo(loc_block_candidates[i].position) > 0){

@@ -151,6 +151,18 @@ function createTasks():((bot:mineflayer.Bot) => Promise<any>)[]{
 
       tasks.push(async (bot:mineflayer.Bot) => {
         console.log('> DigBlocks <');
+        // set move strategy for bot
+        let defaultMove = new Movements(bot);
+        defaultMove.maxDropDown = 1024;
+        defaultMove.canDig = false;
+        defaultMove.exclusionBreak = (block:SafeBlock):number => {
+          return (target_blocks.includes(block.name) ? 0 : 100);
+        };
+        defaultMove.exclusionAreasPlace = [(block:SafeBlock):number => {
+          return 100;
+        }];
+        bot.pathfinder.setMovements(defaultMove);
+
         await digBlocks(bot, config);
       });
     }
@@ -253,15 +265,6 @@ async function routine(tasks:((bot:mineflayer.Bot) => Promise<any>)[]){
   bot.instance.once('spawn', async () => {
     console.log("Spawn");
     console.log("Start !!!");
-    
-    // set move strategy for bot
-    let defaultMove = new Movements(bot.instance);
-    defaultMove.maxDropDown = 1024;
-    defaultMove.canDig = false;
-    defaultMove.exclusionAreasPlace = [(block:SafeBlock):number => {
-      return 100;
-    }];
-    bot.instance.pathfinder.setMovements(defaultMove);
 
     await run_all_tasks();
   });
