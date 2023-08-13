@@ -63,13 +63,13 @@ enum Action{
 }
 
 const client_id:string = cfg.clientID;
-const actions:Action[] = cfg.actions.map((x:string) => Action[x as keyof typeof Action]);
+const actions:Action[] = cfg.Actions.map((x:string) => Action[x as keyof typeof Action]);
 const ip:string = cfg.ip;
 const port:number = Number(cfg.port);
 const version:string = cfg.version;
 
 // open debug info
-if(cfg.info){
+if(cfg.showInfo){
   require('debug').enable('MC_BOT_LIB:*');
 }
 
@@ -198,7 +198,6 @@ async function routine(tasks:((bot:mineflayer.Bot) => Promise<any>)[]){
   // get username and uuid
   const userInfo = await helper.getUserInfo(token.minecraft_token);
   console.log(`Login: ${userInfo.name}, ${userInfo.id}`);
-  console.log(token.minecraft_token);
 
   // create bot
   let bot = BotFactory.MCAuth(ip, port, userInfo.name, userInfo.id, token.minecraft_token, 60 * 1000, version);
@@ -214,6 +213,7 @@ async function routine(tasks:((bot:mineflayer.Bot) => Promise<any>)[]){
   // run_all_tasks
   let keep_running = true;
   async function run_all_tasks(){
+    keep_running = true;
     // wait for finishing loading chunks
     await bot.instance.waitForChunksToLoad();
     await sleep(1000);
@@ -246,25 +246,53 @@ async function routine(tasks:((bot:mineflayer.Bot) => Promise<any>)[]){
     }
   });
   bot.instance.on("message", async (jsonMsg, position) => {
-    debug(jsonMsg.toString());
-    if(cfg.TP){
-      if(jsonMsg.toString().includes('想要你傳送到') ||
-        jsonMsg.toString().includes('想要傳送到')){
-        await bot.instance.waitForTicks(20);
+    const text = jsonMsg.toString();
+    debug(text);
+
+    const checkSender = (regex:RegExp):boolean => {
+      if(regex.test(text)){
+        const player = text.match(regex)[1];
+        debug(`Sender: ${player}`);
+        if(cfg.Control.listType == 'white' && cfg.Control.list.includes(player) ||
+          cfg.Control.listType == 'black' && !cfg.Control.list.includes(player)){
+            return true;
+        }
+      }
+      return false;
+    }
+
+    const regex_tpa = new RegExp('(\\w+) 想要傳送到 你 的位置', 'm');
+    const regex_tph = new RegExp('(\\w+) 想要你傳送到 該玩家 的位置', 'm');
+    if(cfg.Control.Command.TPA && checkSender(regex_tpa) ||
+      cfg.Control.Command.TPH && checkSender(regex_tph)){
+        debug('Command: TPA/TPH');
+        await bot.instance.waitForTicks(30);  // wait 1.5 sec
         bot.instance.chat('/tok');
+    }else{
+      const regex_cmd = new RegExp(`\\[${cfg.Control.channel}] \\[-] <(\\w+)>`, 'm');
+      if(checkSender(regex_cmd)){
+        const regex_msg = new RegExp(`\\[${cfg.Control.channel}] \\[-] <\\w+> (.*)`, 'm');
+        const content = text.match(regex_msg)[1];
+        
+        debug(`Content: ${content}`);
+        if(cfg.Control.Command.work && content == '//work'){
+          debug('Command: Work');
+          run_all_tasks();
+        }else if(cfg.Control.Command.stop && content == '//stop'){
+          debug('Command: Stop');
+          keep_running = false;
+        }
       }
     }
-    if(jsonMsg.toString() == '/work'){
-      keep_running = true;
-      run_all_tasks();
-    }else if(jsonMsg.toString() == '/stop'){
-      keep_running = false;
-    }
   });
-  bot.instance.on('end', async () => {
+
+  // Reconnect
+  let reconnect_time = 0;
+  bot.instance.on('end', () => {
     debug('Disconnect');
-    if(cfg.reconnect){
-      setTimeout(() => { routine(tasks); }, 10*1000); // wait for 10 second
+    if(cfg.Reconnect.enable && 
+      (reconnect_time < cfg.Reconnect.maxLimit || cfg.Reconnect.maxLimit == -1)){
+      setTimeout(() => { routine(tasks); }, cfg.Reconnect.delay*1000);
     }
   })
 
