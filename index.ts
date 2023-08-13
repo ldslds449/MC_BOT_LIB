@@ -254,38 +254,48 @@ async function routine(tasks:((bot:mineflayer.Bot) => Promise<any>)[]){
   bot.instance.on("message", async (jsonMsg, position) => {
     const text = jsonMsg.toString();
     debug(text);
-
-    const checkSender = (regex:RegExp):boolean => {
+    
+    const checkSender = (regex:RegExp):?string => {
       if(regex.test(text)){
         const player = text.match(regex)[1];
         debug(`Sender: ${player}`);
         if(cfg.Control.listType == 'white' && cfg.Control.list.includes(player) ||
           cfg.Control.listType == 'black' && !cfg.Control.list.includes(player)){
-            return true;
+            return player;
         }
       }
-      return false;
+      return null;
     }
 
-    const regex_tpa = new RegExp('(\\w+) 想要傳送到 你 的位置', 'm');
-    const regex_tph = new RegExp('(\\w+) 想要你傳送到 該玩家 的位置', 'm');
-    if(cfg.Control.Command.TPA && checkSender(regex_tpa) ||
-      cfg.Control.Command.TPH && checkSender(regex_tph)){
-        debug('Command: TPA/TPH');
-        await bot.instance.waitForTicks(30);  // wait 1.5 sec
-        bot.instance.chat('/tok');
+    const regex_tpa = new RegExp('(.+) 想要傳送到 你 的位置', 'm');
+    const regex_tph = new RegExp('(.+) 想要你傳送到 該玩家 的位置', 'm');
+    const tpa_sender = checkSender(regex_tpa);
+    const tph_sender = checkSender(regex_tph);
+    if(cfg.Control.Command.TPA && tpa_sender){
+      debug('Command: TPA');
+      bot.instance.chat(`Repley ${tpa_sender}: TPA OK`);
+      await bot.instance.waitForTicks(30);  // wait 1.5 sec
+      bot.instance.chat('/tok');
+    }else if(cfg.Control.Command.TPH && tph_sender){
+      debug('Command: TPH');
+      bot.instance.chat(`Repley ${tph_sender}: TPH OK`);
+      await bot.instance.waitForTicks(30);  // wait 1.5 sec
+      bot.instance.chat('/tok');
     }else{
-      const regex_cmd = new RegExp(`\\[${cfg.Control.channel}] \\[-] <(\\w+)>`, 'm');
-      if(checkSender(regex_cmd)){
-        const regex_msg = new RegExp(`\\[${cfg.Control.channel}] \\[-] <\\w+> (.*)`, 'm');
+      const regex_cmd = new RegExp(`\\[${cfg.Control.channel}] \\[-] <(.+)>`, 'm');
+      const sender = checkSender(regex_cmd);
+      if(sender){
+        const regex_msg = new RegExp(`\\[${cfg.Control.channel}] \\[-] <.+> (.*)`, 'm');
         const content = text.match(regex_msg)[1];
         
         debug(`Content: ${content}`);
         if(cfg.Control.Command.work && content == '//work'){
           debug('Command: Work');
+          bot.instance.chat(`Repley ${sender}: Work OK`);
           run_all_tasks();
         }else if(cfg.Control.Command.stop && content == '//stop'){
           debug('Command: Stop');
+          bot.instance.chat(`Repley ${sender}: Stop OK`);
           keep_running = false;
         }
       }
