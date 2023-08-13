@@ -343,7 +343,6 @@ export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Prom
       } catch (err) {
         debug(err); // Handle errors, if any
       }
-      // await bot.waitForTicks(config.delay);
     }
   }
 
@@ -353,16 +352,15 @@ export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Prom
   for(const id in bot.entities){ 
     if(bot.entities[id].objectType == 'Item' &&
       bot.entities[id].position.y <= bot.entity.position.y &&
-      bot.registry.items[bot.entities[id].getDroppedItem().type] != undefined &&
       inside(config.range[0], config.range[1], bot.entities[id].position) &&
-      bot.entities[id].getDroppedItem().name != 'player_head'){ 
+      config.target_blocks.includes(bot.entities[id].getDroppedItem().name)){ 
       debug(bot.entities[id].getDroppedItem());
       dropped_item.push(bot.entities[id]); 
     }
   }
   debug(`Dropped Item Count: ${dropped_item.length}`);
   let collect_loop = 0;
-  while(collect_loop < 10 && dropped_item.length > 0){
+  while(collect_loop < 15 && dropped_item.length > 0){
     if(bot.inventory.emptySlotCount() < config.inventory_empty_min) break;
     const en = dropped_item.shift();
     debug(`Collect ${en.displayName} At ${en.position}`);
@@ -371,7 +369,7 @@ export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Prom
         bot.pathfinder.stop();
         debug('Exceed Time Limit, Stop Moving ~');
     });
-    await bot.waitForTicks(4);
+    // await bot.waitForTicks(4);
     debug("Collect Done");
     collect_loop++;
   }

@@ -149,7 +149,8 @@ function createTasks():((bot:mineflayer.Bot) => Promise<any>)[]{
         item_container: cfg.DigBlocks.item_container,
         durability_percentage_threshold: cfg.DigBlocks.durability_percentage_threshold
       };
-
+      
+      let retry = 0;
       tasks.push(async (bot:mineflayer.Bot) => {
         console.log('> DigBlocks <');
         // set move strategy for bot
@@ -166,7 +167,12 @@ function createTasks():((bot:mineflayer.Bot) => Promise<any>)[]{
         }];
         bot.pathfinder.setMovements(defaultMove);
 
-        await digBlocks(bot, config);
+        const success = await digBlocks(bot, config);
+        if(success >= cfg.DigBlocks.maxRetry){
+          throw Error('Retry exceeds maximum');
+        }else{
+          retry = (success ? 0 : retry+1);
+        }
       });
     }
   }
