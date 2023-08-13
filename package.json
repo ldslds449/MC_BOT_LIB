@@ -8,7 +8,7 @@
     "start": "ts-node index.ts -c bin/config.yaml -t bin/token.json 2>&1 | tee log/log",
     "build": "tsc --build",
     "clean": "tsc --build --clean",
-    "pkg": "pkg dist/index.js -c pkg.json --compress GZip -o bin/mc_tedious_bot",
+    "pkg": "pkg dist/index.js -c pkg.json --compress GZip --no-bytecode --public-packages \"*\" --public -o bin/mc_tedious_bot",
     "binary": "npm run clean && npm run build && npm run pkg",
     "test": "jest --coverage --runInBand --verbose=true --detectOpenHandles",
     "test_auth": "jest --coverage --runInBand --verbose=true --detectOpenHandles -- microsoftAuth.test.ts",

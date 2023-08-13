@@ -74,9 +74,9 @@ if(cfg.showInfo){
 }
 
 // create tasks
-function createTasks():((bot:mineflayer.Bot) => Promise<any>)[]{
+function createTasks():{[name:string]:((bot:mineflayer.Bot) => Promise<any>)}{
   debug(cfg);
-  let tasks:((bot:mineflayer.Bot) => Promise<any>)[] = [];
+  let tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any>)} = {};
   for(let i = 0; i < actions.length; ++i){
     if(actions[i] == Action.Attack){
       const config:attackConfig = {
@@ -86,13 +86,12 @@ function createTasks():((bot:mineflayer.Bot) => Promise<any>)[]{
         dynamicView: true
       }
 
-      tasks.push(async (bot:mineflayer.Bot) => {
+      tasks.Attack = async (bot:mineflayer.Bot) => {
         let attacked:boolean;
         do{
-          console.log('> Attack <');
           attacked = await attackEntity(bot, config);
         }while(attacked);  // try to attack again
-      });
+      };
     }else if(actions[i] == Action.AutoEat){
       const config:eatConfig = {
         food: cfg.AutoEat.foods,
@@ -104,13 +103,12 @@ function createTasks():((bot:mineflayer.Bot) => Promise<any>)[]{
         offhand: cfg.AutoEat.offhand
       }
 
-      tasks.push(async (bot:mineflayer.Bot) => {
+      tasks.AutoEat = async (bot:mineflayer.Bot) => {
         let ate:boolean;
         do{
-          console.log('> AutoEat <');
           ate = await autoEat(bot, config);
         }while(ate);  // try to eat again
-      });
+      };
     }else if(actions[i] == Action.DigBlocks){
       let target_blocks:string[] = [];
       const registry = loader(version);
@@ -151,8 +149,7 @@ function createTasks():((bot:mineflayer.Bot) => Promise<any>)[]{
       };
       
       let retry = 0;
-      tasks.push(async (bot:mineflayer.Bot) => {
-        console.log('> DigBlocks <');
+      tasks.DigBlocks = async (bot:mineflayer.Bot) => {
         // set move strategy for bot
         let defaultMove = new Movements(bot);
         defaultMove.maxDropDown = 1024;
@@ -173,13 +170,13 @@ function createTasks():((bot:mineflayer.Bot) => Promise<any>)[]{
         }else{
           retry = (success ? 0 : retry+1);
         }
-      });
+      };
     }
   }
   return tasks;
 }
 
-async function routine(tasks:((bot:mineflayer.Bot) => Promise<any>)[]){
+async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any>)}){
   const helper:MicrosoftTokenDeviceHelper = new MicrosoftTokenDeviceHelper(client_id);
 
   let token:Token = undefined;
@@ -227,8 +224,9 @@ async function routine(tasks:((bot:mineflayer.Bot) => Promise<any>)[]){
     // run tasks
     try{
       while(keep_running){
-        for(let i = 0; i < tasks.length; ++i){
-          await tasks[i](bot.instance);
+        for(const act in tasks){
+          console.log(`> ${act} <`);
+          await tasks[act](bot.instance);
         }
       }
     }catch(err){ console.log(err); };
@@ -255,7 +253,7 @@ async function routine(tasks:((bot:mineflayer.Bot) => Promise<any>)[]){
     const text = jsonMsg.toString();
     debug(text);
     
-    const checkSender = (regex:RegExp):?string => {
+    const checkSender = (regex:RegExp):string => {
       if(regex.test(text)){
         const player = text.match(regex)[1];
         debug(`Sender: ${player}`);
@@ -297,6 +295,28 @@ async function routine(tasks:((bot:mineflayer.Bot) => Promise<any>)[]){
           debug('Command: Stop');
           bot.instance.chat(`Repley ${sender}: Stop OK`);
           keep_running = false;
+        }else if(cfg.Control.Command.location && content == '//location'){
+          debug('Command: Location');
+          const loc = bot.instance.entity.position;
+          bot.instance.chat(`Repley ${sender}: I'm at X: ${Math.round(loc.x)}, Y: ${Math.round(loc.y)}, Z: ${Math.round(loc.z)}`);
+        }else if(cfg.Control.Command.state && content == '//state'){
+          debug('Command: State');
+          bot.instance.chat(`Repley ${sender}: ${keep_running ? "I'm working." : "Do nothing."}`);
+        }else if(cfg.Control.Command.listTask && content == '//listTask'){
+          debug('Command: List Task');
+          let msg_arr:string[] = [];
+          for(const act in tasks) msg_arr.push(act);
+          bot.instance.chat(`Tasks: ${msg_arr.join(", ")}`);
+        }else if(cfg.Control.Command.exec && content.startsWith('//exec ')){
+          debug('Command: Execute');
+          bot.instance.chat(content.replace('//exec ', ''));
+        }else if(content == '//help'){
+          debug('Command: Help');
+          let msg_arr:string[] = [];
+          for(const cmd in cfg.Control.Command){
+            if(cfg.Control.Command[cmd]) msg_arr.push(cmd.toString());
+          }
+          bot.instance.chat(`Commands: ${msg_arr.join(", ")}`);
         }
       }
     }
@@ -320,5 +340,5 @@ async function routine(tasks:((bot:mineflayer.Bot) => Promise<any>)[]){
   });
 }
 
-const tasks = createTasks();
+let tasks = createTasks();
 routine(tasks);
