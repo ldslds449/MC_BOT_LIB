@@ -2,7 +2,6 @@ import yaml from 'js-yaml';
 import fs from 'fs';
 
 import mineflayer from 'mineflayer'
-import loader from 'prismarine-registry'
 import { Vec3 } from 'vec3'
 import { program } from 'commander';
 import { BotFactory } from './lib/bot/create';
@@ -63,7 +62,7 @@ enum Action{
 }
 
 const client_id:string = cfg.clientID;
-const actions:Action[] = cfg.Actions.map((x:string) => Action[x as keyof typeof Action]);
+const actions:Action[] = cfg.Action.actions.map((x:string) => Action[x as keyof typeof Action]);
 const ip:string = cfg.ip;
 const port:number = Number(cfg.port);
 const version:string = cfg.version;
@@ -111,7 +110,7 @@ function createTasks():{[name:string]:((bot:mineflayer.Bot) => Promise<any>)}{
       };
     }else if(actions[i] == Action.DigBlocks){
       let target_blocks:string[] = [];
-      const registry = loader(version);
+      const registry = require('prismarine-registry')(version);
       for(let i = 0; i < cfg.DigBlocks.target_blocks.length; ++i){
         if((cfg.DigBlocks.target_blocks[i] as string).endsWith('*')){
           const key = (cfg.DigBlocks.target_blocks[i] as string).replace('*', '');
@@ -154,13 +153,13 @@ function createTasks():{[name:string]:((bot:mineflayer.Bot) => Promise<any>)}{
         let defaultMove = new Movements(bot);
         defaultMove.maxDropDown = 1024;
         defaultMove.exclusionAreasStep = [(block:SafeBlock):number => {
-          return (inside(bottom_corner, upper_corner, block.position)? 0 : 100);
+          return (inside(bottom_corner, upper_corner, block.position)? 0 : Number.POSITIVE_INFINITY);
         }];
         defaultMove.exclusionBreak = (block:SafeBlock):number => {
-          return (target_blocks.includes(block.name) ? 0 : 100);
+          return (target_blocks.includes(block.name) ? 0 : Number.POSITIVE_INFINITY);
         };
         defaultMove.exclusionAreasPlace = [(block:SafeBlock):number => {
-          return 100;
+          return Number.POSITIVE_INFINITY;
         }];
         bot.pathfinder.setMovements(defaultMove);
 
@@ -209,7 +208,7 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
   if(cfg.InventoryViewer.enable){
     inventoryViewer(bot.instance, {
       ip: '0.0.0.0',
-      port: Number(cfg.InventoryViewer.port),
+      port: Number(cfg.InventoryViewer.port)
     });
   }
   bot.instance.loadPlugin(pathfinder);
@@ -230,7 +229,11 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
           await tasks[act](bot.instance);
         }
       }
-    }catch(err){ console.log(err); };
+    }catch(err){ 
+      console.log(err); debug(err); 
+    }finally{
+      keep_running = false;
+    };
   }
   
   // set event listener
@@ -240,8 +243,14 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
   bot.instance.on("error", (err) => {
     console.error(err);
   });
-  bot.instance.once("kicked", (err) => {
+  bot.instance.on("kicked", (err) => {
     console.error(err);
+  });
+  bot.instance.on('death', async () => {
+    await bot.instance.waitForTicks(20);
+    bot.instance.chat("I'm dead. Back to previous location.");
+    bot.instance.chat('/back');
+    await run_all_tasks();
   });
   bot.instance.on('playerCollect', (collector, collected) => {
     if (collector.type === 'player' && collected != undefined && collected.objectType == 'Item' &&
@@ -253,6 +262,30 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
   bot.instance.on("message", async (jsonMsg, position) => {
     const text = jsonMsg.toString();
     debug(text);
+
+    // check waiting message
+    const regex_wait = new RegExp('Summoned to wait by CONSOLE', 'm');
+    const regex_back = new RegExp('Summoned to server(\\d+) by CONSOLE', 'm');
+    if(text.match(regex_wait)){
+      debug('Transfered to waiting Room');
+      bot.instance.chat('Transfered to waiting Room');
+      if(cfg.Action.stopInWaitRoom){
+        debug('Stop actions');
+        bot.instance.chat('Stop actions');
+        keep_running = false;
+      }
+      return;
+    }else if(text.match(regex_back)){
+      const channel = text.match(regex_back)[1];
+      debug(`Transfered to channel ${channel}`);
+      bot.instance.chat(`Transfered to channel ${channel}`);
+      if(cfg.Action.autoWorkAfterWait){
+        debug('Start actions');
+        bot.instance.chat('Start actions');
+        await run_all_tasks();
+      }
+      return;
+    }
     
     const checkSender = (regex:RegExp):string => {
       if(regex.test(text)){
@@ -266,8 +299,8 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
       return null;
     }
 
-    const regex_tpa = new RegExp('(.+) 想要傳送到 你 的位置', 'm');
-    const regex_tph = new RegExp('(.+) 想要你傳送到 該玩家 的位置', 'm');
+    const regex_tpa = new RegExp('[系統] (.+) 想要傳送到 你 的位置', 'm');
+    const regex_tph = new RegExp('[系統] (.+) 想要你傳送到 該玩家 的位置', 'm');
     const tpa_sender = checkSender(regex_tpa);
     const tph_sender = checkSender(regex_tph);
     if(cfg.Control.Command.TPA && tpa_sender){
@@ -291,7 +324,7 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
         if(cfg.Control.Command.work && content == '//work'){
           debug('Command: Work');
           bot.instance.chat(`Repley ${sender}: Work OK`);
-          run_all_tasks();
+          await run_all_tasks();
         }else if(cfg.Control.Command.stop && content == '//stop'){
           debug('Command: Stop');
           bot.instance.chat(`Repley ${sender}: Stop OK`);
@@ -310,7 +343,9 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
           bot.instance.chat(`Tasks: ${msg_arr.join(", ")}`);
         }else if(cfg.Control.Command.exec && content.startsWith('//exec ')){
           debug('Command: Execute');
-          bot.instance.chat(content.replace('//exec ', ''));
+          const cmd = content.replace('//exec ', '')
+          bot.instance.chat(`Repley ${sender}: Ok, execute "${cmd}"`);
+          bot.instance.chat(cmd);
         }else if(content == '//help'){
           debug('Command: Help');
           let msg_arr:string[] = [];

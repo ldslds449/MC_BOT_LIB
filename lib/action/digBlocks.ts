@@ -105,7 +105,7 @@ async function changeTool(bot:mineflayer.Bot, tool:string, durability_percentage
               window: ender_window,
               itemType: old_tool.type,
               metadata: old_tool.metadata,
-              count: 1,
+              count: old_tool.count,
               nbt: old_tool.nbt,
               sourceStart: ender_window.inventoryStart,
               sourceEnd: ender_window.inventoryEnd,
@@ -121,7 +121,7 @@ async function changeTool(bot:mineflayer.Bot, tool:string, durability_percentage
             window: ender_window,
             itemType: new_tool.type,
             metadata: new_tool.metadata,
-            count: 1,
+            count: new_tool.count,
             nbt: new_tool.nbt,
             sourceStart: 0,
             sourceEnd: ender_window.inventoryStart,
@@ -280,6 +280,7 @@ export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Prom
     const maxRatio = Math.ceil(Math.max(maxDist(0), maxDist(1), maxDist(2)) / config.maxDistance);
     debug(`Max Ratio: ${maxRatio}`);
     for(let i = 2; i <= maxRatio; ++i){
+      debug(`Ratio: ${i}`);
       targets = findBlocks(bot, config.target_blocks, 
         [config.maxDistance*i, config.maxDistance*i, config.maxDistance*i], config.range, false);
       if(targets.length > 0) break;
@@ -303,7 +304,10 @@ export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Prom
     // walk
     debug("Try to walk");
     const isArrived = await onlyWaitForSpecTime(bot.pathfinder.goto(
-      new goals.GoalLookAtBlock(goal_loc, bot.world), (err)=>{
+      new goals.GoalCompositeAny([
+        new goals.GoalNear(goal_loc.x, goal_loc.y, goal_loc.z, 4.5),
+        new goals.GoalXZ(goal_loc.x, goal_loc.z)
+      ]), (err)=>{
         debug(err);
       }), 15*1000, () => {
         bot.pathfinder.stop();
@@ -390,20 +394,29 @@ export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Prom
       debug("Find Location");
       const loc_block_candidates = findBlocks(bot, undefined, [config.maxDistance, 2, config.maxDistance],
         [config.range[0].offset(-1,-1,-1), config.range[1].offset(1,1,1)], true);
-      let loc_block:Block = undefined;
+      let loc_block:Block = undefined, place_result = false;
       for(let i = 0; i < loc_block_candidates.length; ++i){
         if(loc_block_candidates[i].name != 'air' && 
             bot.blockAt(loc_block_candidates[i].position.offset(0, 1, 0)).name == 'air' &&
             loc_block_candidates[i].name != bot.registry.itemsByName[config.item_container].name &&
             bot.canSeeBlock(loc_block_candidates[i]) &&
-            bot.entity.position.distanceTo(loc_block_candidates[i].position) > 0){
+            bot.entity.position.distanceTo(loc_block_candidates[i].position) > 0 &&
+            bot.entity.position.distanceTo(loc_block_candidates[i].position) <= 3.5){
+          
           loc_block = loc_block_candidates[i];
-          break;
+          place_result = await new Promise<boolean>(async (resolve) => {
+            await bot.placeBlock(loc_block, new Vec3(0, 1, 0)).catch((reason:any) => {
+              debug(reason);
+              resolve(false);
+            }).then(() => resolve(true));
+          });
+          if(place_result) break;
         }
       }
       if(loc_block == undefined) throw new Error("Can't find a place to place the box");
+      if(!place_result) throw new Error("Place the box ERROR");
       debug(`Place Box On ${loc_block.displayName} At ${loc_block.position.offset(0, 1, 0)}`);
-      await bot.placeBlock(loc_block, new Vec3(0, 1, 0));
+      
       debug("Place Done");
       const chest = await bot.openChest(bot.blockAt(loc_block.position.offset(0, 1, 0)));
       debug("Chest Opened");

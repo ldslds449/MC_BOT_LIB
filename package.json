@@ -29,8 +29,6 @@
     "mineflayer-web-inventory": "^1.8.4",
     "nanoid": "^3.3.4",
     "pkce-challenge": "^3.0.0",
-    "prismarine-registry": "^1.7.0",
-    "prismarine-windows": "^2.5.0",
     "qrcode": "^1.5.1"
   },
   "devDependencies": {

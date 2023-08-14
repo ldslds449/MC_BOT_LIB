@@ -30,7 +30,7 @@ export async function treeChop(bot:mineflayer.Bot, config:treeChopConfig):Promis
   // check the weapon
   bot.updateHeldItem();
   if(bot.heldItem == null || bot.heldItem.name != config.weapon){
-    const weapon = bot.inventory.findInventoryItem(config.weapon, null, false);
+    const weapon = bot.inventory.findInventoryItem(bot.registry.itemsByName[config.weapon].id, null, false);
     if(weapon) {
       await bot.equip(weapon, 'hand')
     }
