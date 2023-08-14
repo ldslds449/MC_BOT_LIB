@@ -104,7 +104,7 @@ async function changeTool(bot:mineflayer.Bot, tool:string, durability_percentage
             await bot.transfer({
               window: ender_window,
               itemType: old_tool.type,
-              metadata: null,
+              metadata: old_tool.metadata,
               count: 1,
               nbt: old_tool.nbt,
               sourceStart: ender_window.inventoryStart,
@@ -117,11 +117,10 @@ async function changeTool(bot:mineflayer.Bot, tool:string, durability_percentage
           }
           // withdraw new tool
           debug(`Withdraw New Tool: ${new_tool.displayName} (${new_tool.type}, ${new_tool.metadata})`);
-          await (ender_window as Chest).withdraw(new_tool.type, new_tool.metadata, 1);
           await bot.transfer({
             window: ender_window,
             itemType: new_tool.type,
-            metadata: null,
+            metadata: new_tool.metadata,
             count: 1,
             nbt: new_tool.nbt,
             sourceStart: 0,
@@ -379,8 +378,12 @@ export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Prom
   if(bot.inventory.emptySlotCount() < config.inventory_empty_min){
     debug("============ Put Items ============");
     debug("Find Box");
-    const box = bot.inventory.findInventoryItem(
-      bot.registry.itemsByName[config.item_container].id, null, true);
+    const box = 
+      bot.inventory.findInventoryItem(
+        bot.registry.itemsByName[config.item_container].id, null, true) ||
+      bot.inventory.findInventoryItem(
+        bot.registry.itemsByName[config.item_container].id, null, false);
+    
     if(box){
       debug("Equip Box");
       await bot.equip(box, 'hand');
@@ -417,7 +420,8 @@ export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Prom
       debug("Finish Deposit");
       bot.closeWindow(chest);
     }else{
-      debug("Can't find any box !!!");
+      debug("I Can't find any box !!!");
+      throw Error("I Can't find any box !!!");
     }
   }
 

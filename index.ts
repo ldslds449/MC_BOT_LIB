@@ -208,6 +208,7 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
   // install plugin
   if(cfg.InventoryViewer.enable){
     inventoryViewer(bot.instance, {
+      ip: '0.0.0.0',
       port: Number(cfg.InventoryViewer.port),
     });
   }
