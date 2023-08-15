@@ -49,6 +49,8 @@ export async function autoEat(bot:mineflayer.Bot, config:eatConfig):Promise<bool
       }
 
       if(isHeld || found){
+        debug(`Food Count: ${bot.heldItem.count}`);
+
         // eat the food
         bot.activateItem(config.offhand);
         debug('Start Eating');

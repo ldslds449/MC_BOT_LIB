@@ -216,19 +216,47 @@ async function onlyWaitForSpecTime(task:Promise<any>, time_limit:number, callbac
   ]);
 }
 
+function sortTargetsByAngelandDistance(bot_pos:Vec3, arr:Block[]|Entity[]){
+  const theta = function(t:Vec3){
+    // calculate theta by inner product
+    const base = new Vec3(1, 0, 0);
+    const val = t.offset(0, -t.y, 0).minus(bot_pos);  // ignore y
+    const inner = base.innerProduct(val);
+    const cosine = inner / base.norm() / val.norm();
+    const th_val = Math.acos(cosine) * 180 / Math.PI;
+    // find direction
+    const cross = base.cross(val).y;
+    return (cross >= 0 ? th_val : 360-th_val);
+  }
+
+  arr.sort((a:Block|Entity, b:Block|Entity):number => {
+    const a_dist = bot_pos.xzDistanceTo(a.position);
+    const b_dist = bot_pos.xzDistanceTo(b.position);
+    if(bot_pos.y-1 == a.position.y && bot_pos.y-1 == b.position.y &&
+      (a_dist <= 1 || b_dist <= 1)){
+      if(a_dist <= 1 && b_dist <= 1){
+        return b_dist - a_dist;
+      }else if(a_dist <= 1){
+        return 1;
+      }else if(b_dist <= 1){
+        return -1;
+      }
+    }
+    const a_theta = theta(a.position);
+    const b_theta = theta(b.position);
+    if(a_theta != b_theta) return a_theta - b_theta;
+    if(a.position.y != b.position.y) return b.position.y - a.position.y;
+    return a_dist - b_dist;
+  })
+}
+
 export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Promise<boolean> {
   // find all blocks nearby
   debug("============ Find Target ============");
   let targets = findBlocks(bot, config.target_blocks, 
     [config.maxDistance, config.maxDistance, config.maxDistance], config.range, true);
   debug(`Find ${targets.length} targets`);
-  targets.sort((a:Block, b:Block) => {  // sort from farthest to closest
-    if(b.position.y != a.position.y){
-      return b.position.y-a.position.y;  // y: descending
-    }else{
-      return bot.entity.position.xzDistanceTo(b.position) - bot.entity.position.xzDistanceTo(a.position);
-    }
-  });
+  sortTargetsByAngelandDistance(bot.entity.position, targets);
 
   // find all blocks far away from me
   if(targets.length == 0){
@@ -272,24 +300,69 @@ export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Prom
   if(targets.length == 0){
     debug("No block can be digged");
     debug("============ Walk ============");
+    
+    // walk function for walk phase
+    async function walk(goal_loc:Vec3, time_limit:number){
+      const isArrived = await onlyWaitForSpecTime(bot.pathfinder.goto(
+        new goals.GoalCompositeAny([
+          new goals.GoalNear(goal_loc.x, goal_loc.y, goal_loc.z, 4.5),
+          new goals.GoalXZ(goal_loc.x, goal_loc.z)
+        ]), (err)=>{
+          debug(err);
+        }), time_limit, () => {
+          bot.pathfinder.stop();
+          debug('Exceed Time Limit, Stop Moving ~');
+      });
+      if(!isArrived){
+        debug('Walk Failed');
+      }else{
+        debug("Arrived");
+      }
+    }
+
     // find blocks with a larger range
     let targets:Block[] = [];
     const maxDist = (idx:number) => Math.max(
       Math.abs(config.range[0].toArray()[idx] - bot.entity.position.toArray()[idx]), 
       Math.abs(config.range[1].toArray()[idx] - bot.entity.position.toArray()[idx]));
     const maxRatio = Math.ceil(Math.max(maxDist(0), maxDist(1), maxDist(2)) / config.maxDistance);
+    const offset = 32;
+    const max_retry_x = Math.abs(config.range[1].x-config.range[0].x) / offset;
+    const max_retry_z = Math.abs(config.range[1].z-config.range[0].z) / offset;
+    const max_retry = max_retry_x * max_retry_z;
     debug(`Max Ratio: ${maxRatio}`);
-    for(let i = 2; i <= maxRatio; ++i){
-      debug(`Ratio: ${i}`);
-      targets = findBlocks(bot, config.target_blocks, 
-        [config.maxDistance*i, config.maxDistance*i, config.maxDistance*i], config.range, false);
-      if(targets.length > 0) break;
-    }
+    debug(`Max Retry: ${max_retry}`);
+
+    // find all possible targets
+    let retry = 0;
+    do{
+      for(let i = 2; i <= maxRatio; ++i){
+        debug(`Ratio: ${i}`);
+        targets = findBlocks(bot, config.target_blocks, 
+          [config.maxDistance*i, config.maxDistance*i, config.maxDistance*i], config.range, false);
+        if(targets.length > 0) break;
+      }
+      // if still no target, then walk to fixed location any try again
+      if(targets.length == 0 && retry < max_retry){
+        debug(`Retry: ${max_retry}`);
+        const row = Math.floor(retry/max_retry_z);
+        const col = retry % max_retry_z;
+        const retry_loc = new Vec3(
+          config.range[0].x + offset*row, 
+          0, 
+          config.range[0].z + offset*col);
+        await walk(retry_loc, 120*1000);
+        retry++;
+      }else{
+        break;
+      }
+    }while(true);
+
+    // check final result
     if(targets.length == 0){
-      bot.chat("I can't find any target, so I quit.");
-      debug("I can't find any target, so I quit.");
       return false;
     }
+
     // select closest one
     let closest_target:Block = targets[0];
     for(let i = 1; i < targets.length; ++i){
@@ -301,23 +374,10 @@ export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Prom
     const goal_loc = closest_target.position;
     debug(`Location: ${bot.entity.position}`);
     debug(`Set Goal to ${goal_loc}`);
+
     // walk
     debug("Try to walk");
-    const isArrived = await onlyWaitForSpecTime(bot.pathfinder.goto(
-      new goals.GoalCompositeAny([
-        new goals.GoalNear(goal_loc.x, goal_loc.y, goal_loc.z, 4.5),
-        new goals.GoalXZ(goal_loc.x, goal_loc.z)
-      ]), (err)=>{
-        debug(err);
-      }), 15*1000, () => {
-        bot.pathfinder.stop();
-        debug('Exceed Time Limit, Stop Moving ~');
-    });
-    if(!isArrived){
-      debug('Walk Failed');
-    }else{
-      debug("Arrived");
-    }
+    await walk(goal_loc, 15*1000);
   }else{
     debug("============ Dig ============");
     // dig loop
@@ -356,17 +416,20 @@ export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Prom
     if(bot.entities[id].objectType == 'Item' &&
       bot.entities[id].position.y <= bot.entity.position.y &&
       inside(config.range[0], config.range[1], bot.entities[id].position) &&
-      config.target_blocks.includes(bot.entities[id].getDroppedItem().name)){ 
+      (config.target_blocks.includes(bot.entities[id].getDroppedItem().name) ||
+        bot.entities[id].getDroppedItem().name == config.item_container)){ 
       debug(bot.entities[id].getDroppedItem());
       dropped_item.push(bot.entities[id]); 
     }
   }
   debug(`Dropped Item Count: ${dropped_item.length}`);
+  sortTargetsByAngelandDistance(bot.entity.position, dropped_item);
   let collect_loop = 0;
   while(collect_loop < 15 && dropped_item.length > 0){
     if(bot.inventory.emptySlotCount() < config.inventory_empty_min) break;
     const en = dropped_item.shift();
     debug(`Collect ${en.displayName} At ${en.position}`);
+    await bot.lookAt(en.position, true);
     await onlyWaitForSpecTime(bot.pathfinder.goto(
       new goals.GoalNear(en.position.x, en.position.y, en.position.z, 0)), 10*1000, () => {
         bot.pathfinder.stop();
@@ -389,6 +452,7 @@ export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Prom
         bot.registry.itemsByName[config.item_container].id, null, false);
     
     if(box){
+      debug(`Box Count: ${box.count}`);
       debug("Equip Box");
       await bot.equip(box, 'hand');
       debug("Find Location");
@@ -398,6 +462,7 @@ export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Prom
       for(let i = 0; i < loc_block_candidates.length; ++i){
         if(loc_block_candidates[i].name != 'air' && 
             bot.blockAt(loc_block_candidates[i].position.offset(0, 1, 0)).name == 'air' &&
+            bot.blockAt(loc_block_candidates[i].position.offset(0, 2, 0)).name == 'air' &&
             loc_block_candidates[i].name != bot.registry.itemsByName[config.item_container].name &&
             bot.canSeeBlock(loc_block_candidates[i]) &&
             bot.entity.position.distanceTo(loc_block_candidates[i].position) > 0 &&

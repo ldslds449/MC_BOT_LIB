@@ -14,6 +14,7 @@ import { digBlocks, digBlocksConfig } from './lib/action/digBlocks';
 import { autoEat, eatConfig } from './lib/action/autoEat';
 import { sleep } from './lib/util/sleep';
 import { inside } from './lib/util/inside';
+import { draw } from './lib/viewer/draw';
 
 import { pathfinder, SafeBlock } from 'mineflayer-pathfinder'
 import { Movements } from 'mineflayer-pathfinder'
@@ -73,11 +74,11 @@ if(cfg.showInfo){
 }
 
 // create tasks
-function createTasks():{[name:string]:((bot:mineflayer.Bot) => Promise<any>)}{
+function createTasks(act:Action[]):{[name:string]:((bot:mineflayer.Bot) => Promise<any>)}{
   debug(cfg);
   let tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any>)} = {};
-  for(let i = 0; i < actions.length; ++i){
-    if(actions[i] == Action.Attack){
+  for(let i = 0; i < act.length; ++i){
+    if(act[i] == Action.Attack){
       const config:attackConfig = {
         entity: cfg.Attack.enemies,
         delay: cfg.Attack.delay,
@@ -91,7 +92,7 @@ function createTasks():{[name:string]:((bot:mineflayer.Bot) => Promise<any>)}{
           attacked = await attackEntity(bot, config);
         }while(attacked);  // try to attack again
       };
-    }else if(actions[i] == Action.AutoEat){
+    }else if(act[i] == Action.AutoEat){
       const config:eatConfig = {
         food: cfg.AutoEat.foods,
         threshold:{
@@ -108,7 +109,7 @@ function createTasks():{[name:string]:((bot:mineflayer.Bot) => Promise<any>)}{
           ate = await autoEat(bot, config);
         }while(ate);  // try to eat again
       };
-    }else if(actions[i] == Action.DigBlocks){
+    }else if(act[i] == Action.DigBlocks){
       let target_blocks:string[] = [];
       const registry = require('prismarine-registry')(version);
       for(let i = 0; i < cfg.DigBlocks.target_blocks.length; ++i){
@@ -165,7 +166,9 @@ function createTasks():{[name:string]:((bot:mineflayer.Bot) => Promise<any>)}{
 
         const success = await digBlocks(bot, config);
         if(success >= cfg.DigBlocks.maxRetry){
-          throw Error('Retry exceeds maximum');
+          bot.chat("I can't find any target, so I quit.");
+          debug("I can't find any target, so I quit.");
+          throw Error('No Target');
         }else{
           retry = (success ? 0 : retry+1);
         }
@@ -248,9 +251,10 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
   });
   bot.instance.on('death', async () => {
     await bot.instance.waitForTicks(20);
+    keep_running = false;
     bot.instance.chat("I'm dead. Back to previous location.");
-    bot.instance.chat('/back');
-    await run_all_tasks();
+    if(cfg.Action.backAfterDead) bot.instance.chat('/back');
+    if(cfg.Action.autoWorkAfterDead) await run_all_tasks();
   });
   bot.instance.on('playerCollect', (collector, collected) => {
     if (collector.type === 'player' && collected != undefined && collected.objectType == 'Item' &&
@@ -267,8 +271,8 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
     const regex_wait = new RegExp('Summoned to wait by CONSOLE', 'm');
     const regex_back = new RegExp('Summoned to server(\\d+) by CONSOLE', 'm');
     if(text.match(regex_wait)){
-      debug('Transfered to waiting Room');
-      bot.instance.chat('Transfered to waiting Room');
+      debug('Transfered to waiting room');
+      bot.instance.chat('Transfered to waiting room');
       if(cfg.Action.stopInWaitRoom){
         debug('Stop actions');
         bot.instance.chat('Stop actions');
@@ -323,12 +327,17 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
         debug(`Content: ${content}`);
         if(cfg.Control.Command.work && content == '//work'){
           debug('Command: Work');
-          bot.instance.chat(`Repley ${sender}: Work OK`);
-          await run_all_tasks();
+          debug(`keep_running: ${keep_running}`);
+          if(keep_running){
+            bot.instance.chat(`Repley ${sender}: I'm already working. To stop, please use stop command`);
+          }else{
+            bot.instance.chat(`Repley ${sender}: Work OK`);
+            await run_all_tasks();
+          }
         }else if(cfg.Control.Command.stop && content == '//stop'){
           debug('Command: Stop');
-          bot.instance.chat(`Repley ${sender}: Stop OK`);
           keep_running = false;
+          bot.instance.chat(`Repley ${sender}: Stop OK`);
         }else if(cfg.Control.Command.location && content == '//location'){
           debug('Command: Location');
           const loc = bot.instance.entity.position;
@@ -336,16 +345,42 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
         }else if(cfg.Control.Command.state && content == '//state'){
           debug('Command: State');
           bot.instance.chat(`Repley ${sender}: ${keep_running ? "I'm working." : "Do nothing."}`);
-        }else if(cfg.Control.Command.listTask && content == '//listTask'){
-          debug('Command: List Task');
+        }else if(cfg.Control.Command.listAction && content == '//listAction'){
+          debug('Command: List Action');
           let msg_arr:string[] = [];
           for(const act in tasks) msg_arr.push(act);
-          bot.instance.chat(`Tasks: ${msg_arr.join(", ")}`);
+          bot.instance.chat(`Actions: ${msg_arr.join(", ")}`);
+        }else if(cfg.Control.Command.addAction && content.startsWith('//addAction ')){
+          debug('Command: Add Action');
+          debug(`keep_running: ${keep_running}`);
+          if(keep_running){
+            bot.instance.chat(`Repley ${sender}: Please stop working first.`);
+            return;
+          }
+          const action_name = content.replace('//addAction ', '');
+          debug(`Action Name: ${action_name}`);
+          if(action_name in tasks){
+            bot.instance.chat(`Repley ${sender}: ${action_name} is already in the Action list.`);
+            return;
+          }
+          const new_action = Action[action_name as keyof typeof Action];
+          if(!new_action){
+            bot.instance.chat(`Repley ${sender}: Unknown action: ${action_name}`);
+            return;
+          }
+          debug(`Add Task: ${action_name}`);
+          const new_task = createTasks([new_action]);
+          tasks[action_name] = new_task[0];
+          bot.instance.chat(`Repley ${sender}: ${action_name} Added, you must work manually.`);
         }else if(cfg.Control.Command.exec && content.startsWith('//exec ')){
           debug('Command: Execute');
-          const cmd = content.replace('//exec ', '')
+          const cmd = content.replace('//exec ', '');
           bot.instance.chat(`Repley ${sender}: Ok, execute "${cmd}"`);
           bot.instance.chat(cmd);
+        }else if(cfg.Control.Command.draw && content == '//draw'){
+          debug('Command: Draw');
+          bot.instance.chat(`Repley ${sender}: Ok, Draw`);
+          await draw(bot.instance);
         }else if(content == '//help'){
           debug('Command: Help');
           let msg_arr:string[] = [];
@@ -376,5 +411,5 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
   });
 }
 
-let tasks = createTasks();
+let tasks = createTasks(actions);
 routine(tasks);
