@@ -111,12 +111,12 @@ async function changeTool(bot:mineflayer.Bot, tool:string, durability_percentage
             // transfer
             do{
               await bot.simpleClick.leftMouse(old_tool.slot);
-            }while(ender_window.selectedItem != null);
+            }while(ender_window.selectedItem == null);
             const ender_empty_slot = ender_window.firstEmptySlotRange(0, ender_window.inventoryStart);
             debug(`Old Tool Destination: ${ender_empty_slot}`);
             do{
               await bot.simpleClick.leftMouse(ender_empty_slot);
-            }while(ender_window.selectedItem == null);
+            }while(ender_window.selectedItem != null);
             // await bot.transfer({
             //   window: ender_window,
             //   itemType: old_tool.type,
@@ -137,13 +137,13 @@ async function changeTool(bot:mineflayer.Bot, tool:string, durability_percentage
           // transfer
           do{
             await bot.simpleClick.leftMouse(new_tool.slot);
-          }while(ender_window.selectedItem != null);
+          }while(ender_window.selectedItem == null);
           const ender_empty_slot = ender_window.firstEmptySlotRange(ender_window.inventoryStart, ender_window.inventoryEnd);
           if(!ender_empty_slot) throw Error('My Inventory is Full');
           debug(`New Tool Destination: ${ender_empty_slot}`);
           do{
             await bot.simpleClick.leftMouse(ender_empty_slot);
-          }while(ender_window.selectedItem == null);
+          }while(ender_window.selectedItem != null);
           // await bot.transfer({
           //   window: ender_window,
           //   itemType: new_tool.type,

@@ -369,7 +369,7 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
           const health_str = `${Math.floor(bot.instance.health)}`;
           const food_str = `${Math.floor(bot.instance.food)}`;
           const saturation_str = `${Math.floor(bot.instance.foodSaturation)}`;
-          const exp_str = `${bot.instance.experience.points}/${Math.floor(bot.instance.experience.progress*100)}%)`;
+          const exp_str = `(LV ${bot.instance.experience.points}, ${Math.floor(bot.instance.experience.progress*100)}%)`;
 
           bot.instance.chat(`Repley ${sender}: State: ${state_str}, Location: ${loc_str}, Health: ${health_str}, Food: ${food_str}, Saturation:${saturation_str}, Exp: ${exp_str}`);
         }else if(cfg.Control.Command.listAction && content == '//listAction'){
