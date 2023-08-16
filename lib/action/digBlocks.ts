@@ -21,6 +21,7 @@ export interface digBlocksConfig{
   item_container:string;
   durability_percentage_threshold:number;
   ctop:boolean;
+  store_item_black_list:string[];
 };
 
 function remainDurabilityPercent(bot:mineflayer.Bot, item:Item){
@@ -56,6 +57,7 @@ async function changeTool(bot:mineflayer.Bot, tool:string, durability_percentage
   bot.updateHeldItem();
   if(bot.heldItem == null || !bot.heldItem.name.includes('_' + tool) || 
     remainDurabilityPercent(bot, bot.heldItem) <= durability_percentage_threshold){
+
     // get tool list
     const tool_dict = {
       'axe': ['netherite_axe', 'golden_axe', 'diamond_axe', 'iron_axe', 'stone_axe', 'wooden_axe'],
@@ -69,6 +71,7 @@ async function changeTool(bot:mineflayer.Bot, tool:string, durability_percentage
       debug(`Can't find tool ${tool}`);
       toolArray = tool_dict['pickaxe'];
     }
+
     // find tool
     const tool_item = findTool(bot, bot.inventory, toolArray, bot.inventory.inventoryStart, 
       bot.inventory.inventoryEnd, durability_percentage_threshold);
@@ -77,23 +80,25 @@ async function changeTool(bot:mineflayer.Bot, tool:string, durability_percentage
       await bot.equip(tool_item, 'hand');
     }else{
       debug(`There is no suitable tool...`);
+
       // check ender chest
       const ender_chest = bot.inventory.findInventoryItem(
         bot.registry.itemsByName['ender_chest'].id, null, true);
       if(ender_chest){
         debug('Open ender chest');
         bot.equip(ender_chest, 'hand');
-        const ender_window = await new Promise<mineflayer.Chest>(async (resolve) => {
+        const ender_window = await new Promise<Window>(async (resolve) => {
           bot.once('windowOpen', (window:Window) => {
             debug('Window Open');
             debug(`Window: ${window.title}`);
             bot.stopDigging();
             bot.setControlState('sneak', false);
-            resolve(window as Chest);
+            resolve(window);
           });
           bot.setControlState('sneak', true);
           await bot.dig(bot.findBlock({matching: bot.registry.itemsByName['air'].id, count: 1}))
         });
+
         // change the tool
         const new_tool = findTool(bot, ender_window, toolArray, 0, ender_window.inventoryStart, 
           durability_percentage_threshold);
@@ -103,34 +108,55 @@ async function changeTool(bot:mineflayer.Bot, tool:string, durability_percentage
             ender_window.inventoryEnd, null);
           if(old_tool){
             debug(`Old Tool: ${old_tool.displayName} At ${old_tool.slot}`);
-            await bot.transfer({
-              window: ender_window,
-              itemType: old_tool.type,
-              metadata: old_tool.metadata,
-              count: old_tool.count,
-              nbt: old_tool.nbt,
-              sourceStart: ender_window.inventoryStart,
-              sourceEnd: ender_window.inventoryEnd,
-              destStart: 0,
-              destEnd: ender_window.inventoryStart
-            });
+            // transfer
+            do{
+              await bot.simpleClick.leftMouse(old_tool.slot);
+            }while(ender_window.selectedItem != null);
+            const ender_empty_slot = ender_window.firstEmptySlotRange(0, ender_window.inventoryStart);
+            debug(`Old Tool Destination: ${ender_empty_slot}`);
+            do{
+              await bot.simpleClick.leftMouse(ender_empty_slot);
+            }while(ender_window.selectedItem == null);
+            // await bot.transfer({
+            //   window: ender_window,
+            //   itemType: old_tool.type,
+            //   metadata: old_tool.metadata,
+            //   count: old_tool.count,
+            //   nbt: old_tool.nbt,
+            //   sourceStart: ender_window.inventoryStart,
+            //   sourceEnd: ender_window.inventoryEnd,
+            //   destStart: 0,
+            //   destEnd: ender_window.inventoryStart
+            // });
           }else{
             debug('No old tool');
           }
+
           // withdraw new tool
           debug(`Withdraw New Tool: ${new_tool.displayName} (${new_tool.type}, ${new_tool.metadata})`);
-          await bot.transfer({
-            window: ender_window,
-            itemType: new_tool.type,
-            metadata: new_tool.metadata,
-            count: new_tool.count,
-            nbt: new_tool.nbt,
-            sourceStart: 0,
-            sourceEnd: ender_window.inventoryStart,
-            destStart: ender_window.inventoryStart,
-            destEnd: ender_window.inventoryEnd
-          });
+          // transfer
+          do{
+            await bot.simpleClick.leftMouse(new_tool.slot);
+          }while(ender_window.selectedItem != null);
+          const ender_empty_slot = ender_window.firstEmptySlotRange(ender_window.inventoryStart, ender_window.inventoryEnd);
+          if(!ender_empty_slot) throw Error('My Inventory is Full');
+          debug(`New Tool Destination: ${ender_empty_slot}`);
+          do{
+            await bot.simpleClick.leftMouse(ender_empty_slot);
+          }while(ender_window.selectedItem == null);
+          // await bot.transfer({
+          //   window: ender_window,
+          //   itemType: new_tool.type,
+          //   metadata: new_tool.metadata,
+          //   count: new_tool.count,
+          //   nbt: new_tool.nbt,
+          //   sourceStart: 0,
+          //   sourceEnd: ender_window.inventoryStart,
+          //   destStart: ender_window.inventoryStart,
+          //   destEnd: ender_window.inventoryEnd
+          // });
           bot.closeWindow(ender_window);
+
           // equip new tool
           const final_tool = findTool(bot, bot.inventory, toolArray, bot.inventory.inventoryStart,
             bot.inventory.inventoryEnd, durability_percentage_threshold);
@@ -475,7 +501,7 @@ export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Prom
       let deposit_items = [];
       const inventory_items = bot.inventory.items();
       for(let i = 0; i < inventory_items.length; ++i){
-        if(config.target_blocks.includes(inventory_items[i].name)){
+        if(!config.store_item_black_list.includes(inventory_items[i].name)){
           deposit_items.push(inventory_items[i]);
         }
       }

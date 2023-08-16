@@ -111,20 +111,25 @@ function createTasks(act:Action[]):{[name:string]:((bot:mineflayer.Bot) => Promi
         }while(ate);  // try to eat again
       };
     }else if(act[i] == Action.DigBlocks){
-      let target_blocks:string[] = [];
       const registry = require('prismarine-registry')(version);
-      for(let i = 0; i < cfg.DigBlocks.target_blocks.length; ++i){
-        if((cfg.DigBlocks.target_blocks[i] as string).endsWith('*')){
-          const key = (cfg.DigBlocks.target_blocks[i] as string).replace('*', '');
-          for(let k = 0; k < registry.itemsArray.length; ++k){
-            if(registry.itemsArray[k].name.includes(key)){
-              target_blocks.push(registry.itemsArray[k].name);
+      const parse_item = function (arr:string[]):string[]{
+        let target:string[] = [];
+        for(let i = 0; i < arr.length; ++i){
+          if((arr[i] as string).endsWith('*')){
+            const key = (arr[i] as string).replace('*', '');
+            for(let k = 0; k < registry.itemsArray.length; ++k){
+              if(registry.itemsArray[k].name.includes(key)){
+                target.push(registry.itemsArray[k].name);
+              }
             }
+          }else{
+            target.push(arr[i]);
           }
-        }else{
-          target_blocks.push(cfg.DigBlocks.target_blocks[i]);
         }
+        return target;
       }
+      const target_blocks = parse_item(cfg.DigBlocks.target_blocks);
+      const store_item_black_list = parse_item(cfg.DigBlocks.store_item_black_list);
 
       const bottom_corner = 
         new Vec3(
@@ -147,7 +152,8 @@ function createTasks(act:Action[]):{[name:string]:((bot:mineflayer.Bot) => Promi
         inventory_empty_min: cfg.DigBlocks.inventory_empty_min,
         item_container: cfg.DigBlocks.item_container,
         durability_percentage_threshold: cfg.DigBlocks.durability_percentage_threshold,
-        ctop: cfg.DigBlocks.ctop
+        ctop: cfg.DigBlocks.ctop,
+        store_item_black_list: store_item_black_list
       };
       
       let progressive_y:number = upper_corner.y;
