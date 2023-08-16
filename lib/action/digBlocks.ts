@@ -6,6 +6,7 @@ import { Window } from 'prismarine-windows'
 import { Entity } from 'prismarine-entity'
 import { goals } from 'mineflayer-pathfinder'
 import { isBetween, inside } from '../util/inside';
+import { onlyWaitForSpecTime, sleep } from '../util/time';
 
 const debug = require('debug')('MC_BOT_LIB:digBlocks');
 
@@ -19,6 +20,7 @@ export interface digBlocksConfig{
   inventory_empty_min:number;
   item_container:string;
   durability_percentage_threshold:number;
+  ctop:boolean;
 };
 
 function remainDurabilityPercent(bot:mineflayer.Bot, item:Item){
@@ -200,22 +202,6 @@ function depositItems(container:mineflayer.Chest, items:Item[]):Promise<void>{
   });
 }
 
-async function onlyWaitForSpecTime(task:Promise<any>, time_limit:number, callback:()=>void):Promise<boolean>{
-  let timer:NodeJS.Timeout;
-  const timeout_promise = new Promise<void>((resolve) => {
-    timer = setTimeout(() => {
-      if(callback != undefined) callback();
-      resolve();
-    }, time_limit);
-  }).then(() => { return false; });
-  return Promise.race([timeout_promise,
-    task.then(() => {
-      clearTimeout(timer);
-      return true;
-    }).catch((err) => { debug(err); return false; })
-  ]);
-}
-
 function sortTargetsByAngelandDistance(bot_pos:Vec3, arr:Block[]|Entity[]){
   const theta = function(t:Vec3){
     // calculate theta by inner product
@@ -259,7 +245,7 @@ export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Prom
   sortTargetsByAngelandDistance(bot.entity.position, targets);
 
   // find all blocks far away from me
-  if(targets.length == 0){
+  if(config.ctop &&targets.length == 0){
     debug("============ Find High Target ============");
     let high_targets = findBlocks(bot, config.target_blocks, 
       [config.maxDistance, config.range[1].y-bot.entity.position.y+1, config.maxDistance], 
@@ -321,25 +307,25 @@ export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Prom
     }
 
     // find blocks with a larger range
-    let targets:Block[] = [];
     const maxDist = (idx:number) => Math.max(
       Math.abs(config.range[0].toArray()[idx] - bot.entity.position.toArray()[idx]), 
       Math.abs(config.range[1].toArray()[idx] - bot.entity.position.toArray()[idx]));
     const maxRatio = Math.ceil(Math.max(maxDist(0), maxDist(1), maxDist(2)) / config.maxDistance);
     const offset = 32;
-    const max_retry_x = Math.abs(config.range[1].x-config.range[0].x) / offset;
-    const max_retry_z = Math.abs(config.range[1].z-config.range[0].z) / offset;
+    const max_retry_x = Math.floor(Math.abs(config.range[1].x-config.range[0].x) / offset);
+    const max_retry_z = Math.floor(Math.abs(config.range[1].z-config.range[0].z) / offset);
     const max_retry = max_retry_x * max_retry_z;
     debug(`Max Ratio: ${maxRatio}`);
     debug(`Max Retry: ${max_retry}`);
 
     // find all possible targets
-    let retry = 0;
-    do{
+    const findAllPossibleTargets = async function(retry:number):Promise<Block[]>{
+      let targets:Block[] = [];
       for(let i = 2; i <= maxRatio; ++i){
         debug(`Ratio: ${i}`);
         targets = findBlocks(bot, config.target_blocks, 
           [config.maxDistance*i, config.maxDistance*i, config.maxDistance*i], config.range, false);
+        await sleep(0.5 * 1000);
         if(targets.length > 0) break;
       }
       // if still no target, then walk to fixed location any try again
@@ -349,14 +335,15 @@ export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Prom
         const col = retry % max_retry_z;
         const retry_loc = new Vec3(
           config.range[0].x + offset*row, 
-          0, 
+          config.range[0].y, 
           config.range[0].z + offset*col);
+        debug(`Retry Location: ${retry_loc}`);
         await walk(retry_loc, 120*1000);
-        retry++;
-      }else{
-        break;
+        return await findAllPossibleTargets(retry+1);
       }
-    }while(true);
+      return targets;
+    }
+    const targets = await findAllPossibleTargets(0);
 
     // check final result
     if(targets.length == 0){

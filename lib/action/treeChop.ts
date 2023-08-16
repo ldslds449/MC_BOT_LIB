@@ -1,7 +1,7 @@
 import mineflayer from 'mineflayer'
 import { Vec3 } from 'vec3'
 import { Block } from 'prismarine-block'
-import { sleep } from '../util/sleep';
+import { sleep } from '../util/time';
 
 const debug = require('debug')('MC_BOT_LIB:treeChop');
 

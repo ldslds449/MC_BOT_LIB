@@ -15,7 +15,7 @@ export interface eatConfig{
 export async function autoEat(bot:mineflayer.Bot, config:eatConfig):Promise<boolean> {
   const EATTIME = 32; // eat time: 32 ticks
 
-  debug(`Health: ${bot.health}`, `Food: ${bot.food}`);
+  debug(`Health: ${Math.floor(bot.health)}`, `Food: ${Math.floor(bot.food)}`);
 
   // eat condition
   if(bot.food != undefined && bot.health != undefined){

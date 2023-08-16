@@ -12,9 +12,10 @@ import { craft } from './lib/action/autoCraft';
 import { treeChop } from './lib/action/treeChop';
 import { digBlocks, digBlocksConfig } from './lib/action/digBlocks';
 import { autoEat, eatConfig } from './lib/action/autoEat';
-import { sleep } from './lib/util/sleep';
+import { sleep } from './lib/util/time';
 import { inside } from './lib/util/inside';
 import { draw } from './lib/viewer/draw';
+import { onlyWaitForSpecTime } from './lib/util/time';
 
 import { pathfinder, SafeBlock } from 'mineflayer-pathfinder'
 import { Movements } from 'mineflayer-pathfinder'
@@ -140,21 +141,26 @@ function createTasks(act:Action[]):{[name:string]:((bot:mineflayer.Bot) => Promi
         target_blocks: target_blocks,
         delay: Number(cfg.DigBlocks.delay), // tick
         maxDistance: cfg.DigBlocks.maxDistance,
-        range: [bottom_corner, upper_corner],
+        range: [bottom_corner.clone(), upper_corner.clone()],
         terminate_entities: cfg.DigBlocks.terminate_entities,
         danger_radius: cfg.DigBlocks.danger_radius,
         inventory_empty_min: cfg.DigBlocks.inventory_empty_min,
         item_container: cfg.DigBlocks.item_container,
-        durability_percentage_threshold: cfg.DigBlocks.durability_percentage_threshold
+        durability_percentage_threshold: cfg.DigBlocks.durability_percentage_threshold,
+        ctop: cfg.DigBlocks.ctop
       };
       
-      let retry = 0;
+      let progressive_y:number = upper_corner.y;
       tasks.DigBlocks = async (bot:mineflayer.Bot) => {
         // set move strategy for bot
         let defaultMove = new Movements(bot);
         defaultMove.maxDropDown = 1024;
         defaultMove.exclusionAreasStep = [(block:SafeBlock):number => {
-          return (inside(bottom_corner, upper_corner, block.position)? 0 : Number.POSITIVE_INFINITY);
+          if(cfg.DigBlocks.moveInRange){
+            return (inside(bottom_corner, upper_corner, block.position) ? 0 : Number.POSITIVE_INFINITY);
+          }else{
+            return 0;
+          }
         }];
         defaultMove.exclusionBreak = (block:SafeBlock):number => {
           return (target_blocks.includes(block.name) ? 0 : Number.POSITIVE_INFINITY);
@@ -164,13 +170,22 @@ function createTasks(act:Action[]):{[name:string]:((bot:mineflayer.Bot) => Promi
         }];
         bot.pathfinder.setMovements(defaultMove);
 
+        // set y
+        if(cfg.DigBlocks.progressive){
+          debug(`Progressive Y: ${progressive_y}`);
+          config.range[0].y = progressive_y;
+        }
+
         const success = await digBlocks(bot, config);
-        if(success >= cfg.DigBlocks.maxRetry){
+        if(!success){
+          if(cfg.DigBlocks.progressive && progressive_y > bottom_corner.y){
+            progressive_y--;
+            debug(`Decrease Y from ${progressive_y+1} to ${progressive_y}`);
+            return;
+          }
           bot.chat("I can't find any target, so I quit.");
           debug("I can't find any target, so I quit.");
           throw Error('No Target');
-        }else{
-          retry = (success ? 0 : retry+1);
         }
       };
     }
@@ -338,13 +353,19 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
           debug('Command: Stop');
           keep_running = false;
           bot.instance.chat(`Repley ${sender}: Stop OK`);
-        }else if(cfg.Control.Command.location && content == '//location'){
-          debug('Command: Location');
-          const loc = bot.instance.entity.position;
-          bot.instance.chat(`Repley ${sender}: I'm at X: ${Math.round(loc.x)}, Y: ${Math.round(loc.y)}, Z: ${Math.round(loc.z)}`);
         }else if(cfg.Control.Command.state && content == '//state'){
           debug('Command: State');
-          bot.instance.chat(`Repley ${sender}: ${keep_running ? "I'm working." : "Do nothing."}`);
+
+          // all state
+          const state_str = keep_running ? "Working" : "Do nothing";
+          const loc = bot.instance.entity.position;
+          const loc_str = `(X: ${Math.round(loc.x)}, Y: ${Math.round(loc.y)}, Z: ${Math.round(loc.z)})`;
+          const health_str = `${Math.floor(bot.instance.health)}`;
+          const food_str = `${Math.floor(bot.instance.food)}`;
+          const saturation_str = `${Math.floor(bot.instance.foodSaturation)}`;
+          const exp_str = `${bot.instance.experience.points}/${Math.floor(bot.instance.experience.progress*100)}%)`;
+
+          bot.instance.chat(`Repley ${sender}: State: ${state_str}, Location: ${loc_str}, Health: ${health_str}, Food: ${food_str}, Saturation:${saturation_str}, Exp: ${exp_str}`);
         }else if(cfg.Control.Command.listAction && content == '//listAction'){
           debug('Command: List Action');
           let msg_arr:string[] = [];
@@ -381,6 +402,30 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
           debug('Command: Draw');
           bot.instance.chat(`Repley ${sender}: Ok, Draw`);
           await draw(bot.instance);
+        }else if(cfg.Control.Command.csafe && content == '//csafe'){
+          debug('Command: csafe');
+          bot.instance.chat(`Repley ${sender}: csafe OK`);
+
+          let waitResp:any;
+          const success = await onlyWaitForSpecTime(
+            new Promise<void>((resolve) => {
+              waitResp = function (jsonMsg){
+                const csafe_resp = jsonMsg.toString() as string;
+                if(csafe_resp.includes('這個領地內的區域')){
+                  if(csafe_resp.includes('不會')){
+                    resolve();
+                  }else{
+                    bot.instance.chat('/csafe');
+                  }
+                }
+              }
+              bot.instance.on("message", waitResp);
+              bot.instance.chat('/csafe');
+            }).finally(() => {
+              bot.instance.off("message", waitResp);
+            }), 
+            5*1000, null);
+          bot.instance.chat(`Repley ${sender}: csafe ${success ? "Successfully" : "Failed"}`);
         }else if(content == '//help'){
           debug('Command: Help');
           let msg_arr:string[] = [];

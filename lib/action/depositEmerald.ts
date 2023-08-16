@@ -1,6 +1,6 @@
 import mineflayer from 'mineflayer'
 import { Window } from 'prismarine-windows'
-import { sleep } from '../util/sleep';
+import { sleep } from '../util/time';
 
 const debug = require('debug')('MC_BOT_LIB:depositEmerald');
 
