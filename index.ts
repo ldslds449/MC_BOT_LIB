@@ -162,7 +162,7 @@ function createTasks(act:Action[]):{[name:string]:((bot:mineflayer.Bot) => Promi
         let defaultMove = new Movements(bot);
         defaultMove.maxDropDown = 1024;
         defaultMove.exclusionAreasStep = [(block:SafeBlock):number => {
-          if(cfg.DigBlocks.moveInRange){
+          if(cfg.DigBlocks.moveInRange && block && block.position){
             return (inside(bottom_corner, upper_corner, block.position) ? 0 : Number.POSITIVE_INFINITY);
           }else{
             return 0;
@@ -189,7 +189,7 @@ function createTasks(act:Action[]):{[name:string]:((bot:mineflayer.Bot) => Promi
             debug(`Decrease Y from ${progressive_y+1} to ${progressive_y}`);
             return;
           }
-          bot.chat("I can't find any target, so I quit.");
+          // bot.chat("I can't find any target, so I quit.");
           debug("I can't find any target, so I quit.");
           throw Error('No Target');
         }
@@ -241,9 +241,6 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
   let keep_running = true;
   async function run_all_tasks(){
     keep_running = true;
-    // wait for finishing loading chunks
-    await bot.instance.waitForChunksToLoad();
-    await sleep(1000);
 
     // run tasks
     try{
@@ -271,6 +268,7 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
     console.error(err);
   });
   bot.instance.on('death', async () => {
+    debug('Death');
     await bot.instance.waitForTicks(20);
     keep_running = false;
     bot.instance.chat("I'm dead. Back to previous location.");
@@ -328,16 +326,40 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
     const regex_tph = new RegExp('[系統] (.+) 想要你傳送到 該玩家 的位置', 'm');
     const tpa_sender = checkSender(regex_tpa);
     const tph_sender = checkSender(regex_tph);
-    if(cfg.Control.Command.TPA && tpa_sender){
-      debug('Command: TPA');
-      bot.instance.chat(`Repley ${tpa_sender}: TPA OK`);
-      await bot.instance.waitForTicks(30);  // wait 1.5 sec
-      bot.instance.chat('/tok');
-    }else if(cfg.Control.Command.TPH && tph_sender){
-      debug('Command: TPH');
-      bot.instance.chat(`Repley ${tph_sender}: TPH OK`);
-      await bot.instance.waitForTicks(30);  // wait 1.5 sec
-      bot.instance.chat('/tok');
+    if((cfg.Control.Command.TPA && tpa_sender) || (cfg.Control.Command.TPH && tph_sender)){
+      if(cfg.Control.Command.TPA){
+        debug('Command: TPA');
+        bot.instance.chat(`Repley ${tpa_sender}: TPA OK`);
+      }else{
+        debug('Command: TPH');
+        bot.instance.chat(`Repley ${tph_sender}: TPH OK`);
+      }
+
+      let waitResp:any;
+      const success = await onlyWaitForSpecTime(
+        new Promise<void>((resolve) => {
+          waitResp = function (jsonMsg){
+            const tp_resp = jsonMsg.toString() as string;
+            if(tp_resp.includes('接受') && tp_resp.includes('拒絕')){
+              bot.instance.chat('/tok');
+              resolve();
+            }
+          }
+          bot.instance.on("message", waitResp);
+        }).finally(() => {
+          bot.instance.off("message", waitResp);
+        }), 
+        5*1000, null);
+
+      if(cfg.Control.Command.TPA){
+        const resp_str = `TPA ${success ? "Successfully" : "Failed"}`;
+        debug(resp_str);
+        bot.instance.chat(`Repley ${tpa_sender}: ${resp_str}`);
+      }else{
+        const resp_str = `TPH ${success ? "Successfully" : "Failed"}`;
+        debug(resp_str);
+        bot.instance.chat(`Repley ${tpa_sender}: ${resp_str}`);
+      }
     }else{
       const regex_cmd = new RegExp(`\\[${cfg.Control.channel}] \\[-] <(.+)>`, 'm');
       const sender = checkSender(regex_cmd);
@@ -458,6 +480,9 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
     console.log("Spawn");
     console.log("Start !!!");
 
+    // wait for finishing loading chunks
+    await bot.instance.waitForChunksToLoad();
+    await sleep(1000);
     await run_all_tasks();
   });
 }

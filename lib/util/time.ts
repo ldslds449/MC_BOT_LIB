@@ -3,6 +3,8 @@ export async function sleep(time:number):Promise<void> {
   return await new Promise(resolve => setTimeout(resolve, time));
 }
 
+const debug = require('debug')('MC_BOT_LIB:time');
+
 export async function onlyWaitForSpecTime(task:Promise<any>, time_limit:number, callback:()=>void):Promise<boolean>{
   let timer:NodeJS.Timeout;
   const timeout_promise = new Promise<void>((resolve) => {
@@ -15,6 +17,9 @@ export async function onlyWaitForSpecTime(task:Promise<any>, time_limit:number, 
     task.then(() => {
       clearTimeout(timer);
       return true;
-    }).catch(() => { return false; })
+    }).catch((err) => {
+      debug(err); 
+      return false;
+    })
   ]);
 }

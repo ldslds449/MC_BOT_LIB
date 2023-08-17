@@ -330,42 +330,33 @@ export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Prom
       }else{
         debug("Arrived");
       }
+      return isArrived;
     }
 
     // find blocks with a larger range
-    const maxDist = (idx:number) => Math.max(
-      Math.abs(config.range[0].toArray()[idx] - bot.entity.position.toArray()[idx]), 
-      Math.abs(config.range[1].toArray()[idx] - bot.entity.position.toArray()[idx]));
-    const maxRatio = Math.ceil(Math.max(maxDist(0), maxDist(1), maxDist(2)) / config.maxDistance);
-    const offset = 32;
-    const max_retry_x = Math.floor(Math.abs(config.range[1].x-config.range[0].x) / offset);
-    const max_retry_z = Math.floor(Math.abs(config.range[1].z-config.range[0].z) / offset);
+    const offset = 2*16;
+    const max_retry_x = Math.floor((Math.abs(config.range[1].x-config.range[0].x)-(offset/2)) / offset);
+    const max_retry_z = Math.floor((Math.abs(config.range[1].z-config.range[0].z)-(offset/2)) / offset);
     const max_retry = max_retry_x * max_retry_z;
-    debug(`Max Ratio: ${maxRatio}`);
     debug(`Max Retry: ${max_retry}`);
 
     // find all possible targets
     const findAllPossibleTargets = async function(retry:number):Promise<Block[]>{
-      let targets:Block[] = [];
-      for(let i = 2; i <= maxRatio; ++i){
-        debug(`Ratio: ${i}`);
-        targets = findBlocks(bot, config.target_blocks, 
-          [config.maxDistance*i, config.maxDistance*i, config.maxDistance*i], config.range, false);
-        await sleep(0.5 * 1000);
-        if(targets.length > 0) break;
-      }
+      const targets = findBlocks(bot, config.target_blocks, 
+        [offset, offset, offset], config.range, false);
       // if still no target, then walk to fixed location any try again
       if(targets.length == 0 && retry < max_retry){
-        debug(`Retry: ${max_retry}`);
+        debug(`Retry: ${retry}`);
         const row = Math.floor(retry/max_retry_z);
         const col = retry % max_retry_z;
         const retry_loc = new Vec3(
-          config.range[0].x + offset*row, 
+          config.range[0].x + offset*row + offset/2, 
           config.range[0].y, 
-          config.range[0].z + offset*col);
+          config.range[0].z + offset*col + offset/2);
         debug(`Retry Location: ${retry_loc}`);
-        await walk(retry_loc, 120*1000);
-        return await findAllPossibleTargets(retry+1);
+        const arrived = await walk(retry_loc, 60*1000);
+        if(!arrived) return targets;
+        else return await findAllPossibleTargets(retry+1);
       }
       return targets;
     }
@@ -443,13 +434,14 @@ export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Prom
     const en = dropped_item.shift();
     debug(`Collect ${en.displayName} At ${en.position}`);
     await bot.lookAt(en.position, true);
-    await onlyWaitForSpecTime(bot.pathfinder.goto(
+    const result = await onlyWaitForSpecTime(bot.pathfinder.goto(
       new goals.GoalNear(en.position.x, en.position.y, en.position.z, 0)), 10*1000, () => {
         bot.pathfinder.stop();
         debug('Exceed Time Limit, Stop Moving ~');
     });
     // await bot.waitForTicks(4);
-    debug("Collect Done");
+    if(result) debug("Collect Done");
+    else debug("Skip Collecting");
     collect_loop++;
   }
 
