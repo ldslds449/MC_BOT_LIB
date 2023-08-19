@@ -1,6 +1,9 @@
 import { Vec3 } from 'vec3'
 
 export function isBetween(ptA:number, ptB:number, val:number):boolean {
+  ptA = Math.floor(ptA);
+  ptB = Math.floor(ptB);
+  val = Math.floor(val);
   const dist_A = Math.abs(ptA - val);
   const dist_B = Math.abs(ptB - val);
   const dist = Math.abs(ptA - ptB);

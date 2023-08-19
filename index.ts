@@ -133,22 +133,20 @@ function createTasks(act:Action[]):{[name:string]:((bot:mineflayer.Bot) => Promi
 
       const bottom_corner = 
         new Vec3(
-          Number(cfg.DigBlocks.range[0][0]), 
-          Number(cfg.DigBlocks.range[0][1]), 
-          Number(cfg.DigBlocks.range[0][2]));
+          Number(Math.min(cfg.DigBlocks.range[0][0], cfg.DigBlocks.range[1][0])), 
+          Number(Math.min(cfg.DigBlocks.range[0][1], cfg.DigBlocks.range[1][1])), 
+          Number(Math.min(cfg.DigBlocks.range[0][2], cfg.DigBlocks.range[1][2])));
       const upper_corner = 
         new Vec3(
-          Number(cfg.DigBlocks.range[1][0]), 
-          Number(cfg.DigBlocks.range[1][1]), 
-          Number(cfg.DigBlocks.range[1][2]));
+          Number(Math.max(cfg.DigBlocks.range[0][0], cfg.DigBlocks.range[1][0])), 
+          Number(Math.max(cfg.DigBlocks.range[0][1], cfg.DigBlocks.range[1][1])), 
+          Number(Math.max(cfg.DigBlocks.range[0][2], cfg.DigBlocks.range[1][2])));
 
       const config:digBlocksConfig = {
         target_blocks: target_blocks,
         delay: Number(cfg.DigBlocks.delay), // tick
         maxDistance: cfg.DigBlocks.maxDistance,
         range: [bottom_corner.clone(), upper_corner.clone()],
-        terminate_entities: cfg.DigBlocks.terminate_entities,
-        danger_radius: cfg.DigBlocks.danger_radius,
         inventory_empty_min: cfg.DigBlocks.inventory_empty_min,
         item_container: cfg.DigBlocks.item_container,
         durability_percentage_threshold: cfg.DigBlocks.durability_percentage_threshold,
@@ -157,13 +155,14 @@ function createTasks(act:Action[]):{[name:string]:((bot:mineflayer.Bot) => Promi
       };
       
       let progressive_y:number = upper_corner.y;
+      let asyncGen:AsyncGenerator<boolean, boolean, unknown> = undefined;
       tasks.DigBlocks = async (bot:mineflayer.Bot) => {
         // set move strategy for bot
         let defaultMove = new Movements(bot);
         defaultMove.maxDropDown = 1024;
         defaultMove.exclusionAreasStep = [(block:SafeBlock):number => {
           if(cfg.DigBlocks.moveInRange && block && block.position){
-            return (inside(bottom_corner, upper_corner, block.position) ? 0 : Number.POSITIVE_INFINITY);
+            return (inside(bottom_corner.offset(-2, 0, -2), upper_corner.offset(2, 0, 2), block.position) ? 0 : 100);
           }else{
             return 0;
           }
@@ -181,18 +180,27 @@ function createTasks(act:Action[]):{[name:string]:((bot:mineflayer.Bot) => Promi
           debug(`Progressive Y: ${progressive_y}`);
           config.range[0].y = progressive_y;
         }
-
-        const success = await digBlocks(bot, config);
-        if(!success){
-          if(cfg.DigBlocks.progressive && progressive_y > bottom_corner.y){
-            progressive_y--;
-            debug(`Decrease Y from ${progressive_y+1} to ${progressive_y}`);
-            return;
-          }
-          // bot.chat("I can't find any target, so I quit.");
-          debug("I can't find any target, so I quit.");
-          throw Error('No Target');
+        
+        if(asyncGen == undefined){
+          asyncGen = digBlocks(bot, config);
         }
+        const success = await asyncGen.next().then((r) => { return r.value; });
+        debug(`Success ${success}`);
+        if(success == undefined){
+          asyncGen = digBlocks(bot, config);
+        }else{
+          if(!success){
+            if(cfg.DigBlocks.progressive && progressive_y > bottom_corner.y){
+              progressive_y--;
+              debug(`Decrease Y from ${progressive_y+1} to ${progressive_y}`);
+              return;
+            }
+            // bot.chat("I can't find any target, so I quit.");
+            debug("I can't find any target, so I quit.");
+            throw Error('No Target');
+          }
+        }
+        
       };
     }
   }

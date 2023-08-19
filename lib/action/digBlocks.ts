@@ -15,8 +15,6 @@ export interface digBlocksConfig{
   delay:number; // tick
   maxDistance:number;
   range:Vec3[];
-  terminate_entities:string[];
-  danger_radius:number;
   inventory_empty_min:number;
   item_container:string;
   durability_percentage_threshold:number;
@@ -242,15 +240,15 @@ function sortTargetsByAngelandDistance(bot_pos:Vec3, arr:Block[]|Entity[]){
   }
 
   arr.sort((a:Block|Entity, b:Block|Entity):number => {
-    const a_dist = bot_pos.xzDistanceTo(a.position);
-    const b_dist = bot_pos.xzDistanceTo(b.position);
+    const a_dist = bot_pos.offset(0, -1, 0).xzDistanceTo(a.position);
+    const b_dist = bot_pos.offset(0, -1, 0).xzDistanceTo(b.position);
     if(bot_pos.y-1 == a.position.y && bot_pos.y-1 == b.position.y &&
-      (a_dist <= 1 || b_dist <= 1)){
-      if(a_dist <= 1 && b_dist <= 1){
+      (a_dist <= 1.5 || b_dist <= 1.5)){
+      if(a_dist <= 1.5 && b_dist <= 1.5){
         return b_dist - a_dist;
-      }else if(a_dist <= 1){
+      }else if(a_dist <= 1.5){
         return 1;
-      }else if(b_dist <= 1){
+      }else if(b_dist <= 1.5){
         return -1;
       }
     }
@@ -262,19 +260,20 @@ function sortTargetsByAngelandDistance(bot_pos:Vec3, arr:Block[]|Entity[]){
   })
 }
 
-export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Promise<boolean> {
+export async function *digBlocks(bot:mineflayer.Bot, config:digBlocksConfig) {
   // find all blocks nearby
   debug("============ Find Target ============");
   let targets = findBlocks(bot, config.target_blocks, 
     [config.maxDistance, config.maxDistance, config.maxDistance], config.range, true);
   debug(`Find ${targets.length} targets`);
   sortTargetsByAngelandDistance(bot.entity.position, targets);
+  debug(targets.map((b:Block) => b.position));
 
   // find all blocks far away from me
-  if(config.ctop &&targets.length == 0){
+  if(config.ctop && targets.length == 0){
     debug("============ Find High Target ============");
     let high_targets = findBlocks(bot, config.target_blocks, 
-      [config.maxDistance, config.range[1].y-bot.entity.position.y+1, config.maxDistance], 
+      [32, Math.abs(config.range[1].y-bot.entity.position.y)+1, 32], 
       config.range, false);
     // sort from nearest to farthest
     high_targets.sort((a:Block, b:Block) => {
@@ -298,6 +297,7 @@ export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Prom
         await onlyWaitForSpecTime(new Promise<void>((resolve) => {
           bot.once('forcedMove', () => {
             resolve();
+            bot.waitForChunksToLoad();
             debug('Move Success');
           });
           bot.chat('/ctop');
@@ -314,10 +314,10 @@ export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Prom
     debug("============ Walk ============");
     
     // walk function for walk phase
-    async function walk(goal_loc:Vec3, time_limit:number){
+    async function walk(goal_loc:Vec3, time_limit:number, nearDist:number){
       const isArrived = await onlyWaitForSpecTime(bot.pathfinder.goto(
         new goals.GoalCompositeAny([
-          new goals.GoalNear(goal_loc.x, goal_loc.y, goal_loc.z, 4.5),
+          new goals.GoalNear(goal_loc.x, goal_loc.y, goal_loc.z, nearDist),
           new goals.GoalXZ(goal_loc.x, goal_loc.z)
         ]), (err)=>{
           debug(err);
@@ -334,33 +334,35 @@ export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Prom
     }
 
     // find blocks with a larger range
-    const offset = 2*16;
-    const max_retry_x = Math.floor((Math.abs(config.range[1].x-config.range[0].x)-(offset/2)) / offset);
-    const max_retry_z = Math.floor((Math.abs(config.range[1].z-config.range[0].z)-(offset/2)) / offset);
+    const offset = 16;
+    const max_retry_x = Math.floor((Math.abs(config.range[1].x-config.range[0].x+1)) / offset);
+    const max_retry_z = Math.floor((Math.abs(config.range[1].z-config.range[0].z+1)) / offset);
     const max_retry = max_retry_x * max_retry_z;
     debug(`Max Retry: ${max_retry}`);
 
     // find all possible targets
-    const findAllPossibleTargets = async function(retry:number):Promise<Block[]>{
-      const targets = findBlocks(bot, config.target_blocks, 
-        [offset, offset, offset], config.range, false);
+    let targets:Block[] = [];
+    let retry = 0;
+    while(retry < max_retry){
+      debug(`Retry: ${retry}`);
+      // check danger & food
+      yield true;
+
+      targets = findBlocks(bot, config.target_blocks, 
+        [32, config.range[1].y-config.range[0].y+1, 32], config.range, false);
       // if still no target, then walk to fixed location any try again
-      if(targets.length == 0 && retry < max_retry){
-        debug(`Retry: ${retry}`);
-        const row = Math.floor(retry/max_retry_z);
-        const col = retry % max_retry_z;
-        const retry_loc = new Vec3(
-          config.range[0].x + offset*row + offset/2, 
-          config.range[0].y, 
-          config.range[0].z + offset*col + offset/2);
-        debug(`Retry Location: ${retry_loc}`);
-        const arrived = await walk(retry_loc, 60*1000);
-        if(!arrived) return targets;
-        else return await findAllPossibleTargets(retry+1);
-      }
-      return targets;
+      const row = Math.floor(retry/max_retry_z);
+      const col = retry % max_retry_z;
+      const retry_loc = new Vec3(
+        config.range[0].x + offset*row + offset/2, 
+        config.range[0].y, 
+        row % 2 == 0 ? 
+          (config.range[0].z + offset*col + offset/2) :
+          (config.range[1].z - offset*col - offset/2));
+      debug(`Retry Location: ${retry_loc}`);
+      await walk(retry_loc, 60*1000, 0);
+      retry++;
     }
-    const targets = await findAllPossibleTargets(0);
 
     // check final result
     if(targets.length == 0){
@@ -381,21 +383,13 @@ export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Prom
 
     // walk
     debug("Try to walk");
-    await walk(goal_loc, 15*1000);
+    await walk(goal_loc, 15*1000, 4.5);
   }else{
     debug("============ Dig ============");
     // dig loop
     for(let i = 0; i < targets.length; i++){
-      // check danger
-      debug('Check Danger');
-      for(const id in bot.entities){
-        const en = bot.entities[id];
-        // check mod type
-        if(config.terminate_entities.includes(en.name) && 
-            en.position.distanceTo(bot.entity.position) < config.danger_radius){
-          return true;
-        }
-      }
+      // check danger & food
+      yield true;
       // check block state
       if(!bot.canDigBlock(targets[i])) continue;
       // dig
@@ -411,100 +405,114 @@ export async function digBlocks(bot:mineflayer.Bot, config:digBlocksConfig):Prom
         debug(err); // Handle errors, if any
       }
     }
-  }
 
-  // collect
-  debug("============ Collect ============");
-  let dropped_item:Entity[] = [];
-  for(const id in bot.entities){ 
-    if(bot.entities[id].objectType == 'Item' &&
-      bot.entities[id].position.y <= bot.entity.position.y &&
-      inside(config.range[0], config.range[1], bot.entities[id].position) &&
-      (config.target_blocks.includes(bot.entities[id].getDroppedItem().name) ||
-        bot.entities[id].getDroppedItem().name == config.item_container)){ 
-      debug(bot.entities[id].getDroppedItem());
-      dropped_item.push(bot.entities[id]); 
+    // collect
+    debug("============ Collect ============");
+    let dropped_item:Entity[] = [];
+    for(const id in bot.entities){ 
+      if(bot.entities[id].objectType == 'Item' &&
+        bot.entities[id].position.y <= bot.entity.position.y &&
+        inside(config.range[0], config.range[1], bot.entities[id].position) &&
+        (config.target_blocks.includes(bot.entities[id].getDroppedItem().name) ||
+          bot.entities[id].getDroppedItem().name == config.item_container)){ 
+        debug(bot.entities[id].getDroppedItem());
+        dropped_item.push(bot.entities[id]); 
+      }
     }
-  }
-  debug(`Dropped Item Count: ${dropped_item.length}`);
-  sortTargetsByAngelandDistance(bot.entity.position, dropped_item);
-  let collect_loop = 0;
-  while(collect_loop < 15 && dropped_item.length > 0){
-    if(bot.inventory.emptySlotCount() < config.inventory_empty_min) break;
-    const en = dropped_item.shift();
-    debug(`Collect ${en.displayName} At ${en.position}`);
-    await bot.lookAt(en.position, true);
-    const result = await onlyWaitForSpecTime(bot.pathfinder.goto(
-      new goals.GoalNear(en.position.x, en.position.y, en.position.z, 0)), 10*1000, () => {
-        bot.pathfinder.stop();
-        debug('Exceed Time Limit, Stop Moving ~');
+    debug(`Dropped Item Count: ${dropped_item.length}`);
+    dropped_item.sort((a: Entity, b: Entity):number => {
+      return bot.entity.position.xzDistanceTo(a.position) - bot.entity.position.xzDistanceTo(b.position);
     });
-    // await bot.waitForTicks(4);
-    if(result) debug("Collect Done");
-    else debug("Skip Collecting");
-    collect_loop++;
-  }
+    let collect_loop = 0;
+    while(collect_loop < 15 && dropped_item.length > 0){
+      if(bot.inventory.emptySlotCount() < config.inventory_empty_min) break;
+      // check danger & food
+      yield true;
+      const en = dropped_item.shift();
+      debug(`Collect ${en.displayName} At ${en.position}`);
+      await bot.lookAt(en.position, true);
+      const result = await onlyWaitForSpecTime(bot.pathfinder.goto(
+        new goals.GoalNear(en.position.x, en.position.y, en.position.z, 0)), 10*1000, () => {
+          bot.pathfinder.stop();
+          debug('Exceed Time Limit, Stop Moving ~');
+      });
+      // await bot.waitForTicks(4);
+      if(result) debug("Collect Done");
+      else debug("Skip Collecting");
+      collect_loop++;
+    }
 
-  // put items
-  debug(`Empty Slot: ${bot.inventory.emptySlotCount()}`);
-  if(bot.inventory.emptySlotCount() < config.inventory_empty_min){
-    debug("============ Put Items ============");
-    debug("Find Box");
-    const box = 
-      bot.inventory.findInventoryItem(
-        bot.registry.itemsByName[config.item_container].id, null, true) ||
-      bot.inventory.findInventoryItem(
-        bot.registry.itemsByName[config.item_container].id, null, false);
-    
-    if(box){
-      debug(`Box Count: ${box.count}`);
-      debug("Equip Box");
-      await bot.equip(box, 'hand');
-      debug("Find Location");
-      const loc_block_candidates = findBlocks(bot, undefined, [config.maxDistance, 2, config.maxDistance],
-        [config.range[0].offset(-1,-1,-1), config.range[1].offset(1,1,1)], true);
-      let loc_block:Block = undefined, place_result = false;
-      for(let i = 0; i < loc_block_candidates.length; ++i){
-        if(loc_block_candidates[i].name != 'air' && 
-            bot.blockAt(loc_block_candidates[i].position.offset(0, 1, 0)).name == 'air' &&
-            bot.blockAt(loc_block_candidates[i].position.offset(0, 2, 0)).name == 'air' &&
-            loc_block_candidates[i].name != bot.registry.itemsByName[config.item_container].name &&
-            bot.canSeeBlock(loc_block_candidates[i]) &&
-            bot.entity.position.distanceTo(loc_block_candidates[i].position) > 0 &&
-            bot.entity.position.distanceTo(loc_block_candidates[i].position) <= 3.5){
-          
-          loc_block = loc_block_candidates[i];
-          place_result = await new Promise<boolean>(async (resolve) => {
-            await bot.placeBlock(loc_block, new Vec3(0, 1, 0)).catch((reason:any) => {
-              debug(reason);
-              resolve(false);
-            }).then(() => resolve(true));
-          });
-          if(place_result) break;
-        }
+    // wait for finish falling
+    debug("Wait for finish falling");
+    await onlyWaitForSpecTime(new Promise<void>(async (resolve) => {
+      while(Math.abs(bot.entity.velocity.y) > 0.1){
+        debug(`Velocity: ${bot.entity.velocity}`);
+        await bot.waitForTicks(5);
       }
-      if(loc_block == undefined) throw new Error("Can't find a place to place the box");
-      if(!place_result) throw new Error("Place the box ERROR");
-      debug(`Place Box On ${loc_block.displayName} At ${loc_block.position.offset(0, 1, 0)}`);
+      resolve();
+    }), 10*1000, null);
+
+    // put items
+    debug(`Empty Slot: ${bot.inventory.emptySlotCount()}`);
+    if(bot.inventory.emptySlotCount() < config.inventory_empty_min){
+      debug("============ Put Items ============");
+      debug("Find Box");
+      const box = 
+        bot.inventory.findInventoryItem(
+          bot.registry.itemsByName[config.item_container].id, null, true) ||
+        bot.inventory.findInventoryItem(
+          bot.registry.itemsByName[config.item_container].id, null, false);
       
-      debug("Place Done");
-      const chest = await bot.openChest(bot.blockAt(loc_block.position.offset(0, 1, 0)));
-      debug("Chest Opened");
-      let deposit_items = [];
-      const inventory_items = bot.inventory.items();
-      for(let i = 0; i < inventory_items.length; ++i){
-        if(!config.store_item_black_list.includes(inventory_items[i].name)){
-          deposit_items.push(inventory_items[i]);
+      if(box){
+        debug(`Box Count: ${box.count}`);
+        debug("Equip Box");
+        await bot.equip(box, 'hand');
+        debug("Find Location");
+        const loc_block_candidates = findBlocks(bot, undefined, [config.maxDistance, 2, config.maxDistance],
+          [config.range[0].offset(-1,-1,-1), config.range[1].offset(1,1,1)], true);
+        let loc_block:Block = undefined, place_result = false;
+        for(let i = 0; i < loc_block_candidates.length; ++i){
+          if(loc_block_candidates[i].name != 'air' && 
+              bot.blockAt(loc_block_candidates[i].position.offset(0, 1, 0)).name == 'air' &&
+              bot.blockAt(loc_block_candidates[i].position.offset(0, 2, 0)).name == 'air' &&
+              loc_block_candidates[i].name != bot.registry.itemsByName[config.item_container].name &&
+              bot.canSeeBlock(loc_block_candidates[i]) &&
+              bot.entity.position.distanceTo(loc_block_candidates[i].position) > 0 &&
+              bot.entity.position.distanceTo(loc_block_candidates[i].position) <= 3.5){
+            
+            loc_block = loc_block_candidates[i];
+            place_result = await new Promise<boolean>(async (resolve) => {
+              await bot.placeBlock(loc_block, new Vec3(0, 1, 0)).catch((reason:any) => {
+                debug(reason);
+                resolve(false);
+              }).then(() => resolve(true));
+            });
+            if(place_result) break;
+          }
         }
+        if(loc_block == undefined) throw new Error("Can't find a place to place the box");
+        if(!place_result) throw new Error("Place the box ERROR");
+        debug(`Place Box On ${loc_block.displayName} At ${loc_block.position.offset(0, 1, 0)}`);
+        
+        debug("Place Done");
+        const chest = await bot.openChest(bot.blockAt(loc_block.position.offset(0, 1, 0)));
+        debug("Chest Opened");
+        let deposit_items = [];
+        const inventory_items = bot.inventory.items();
+        for(let i = 0; i < inventory_items.length; ++i){
+          if(!config.store_item_black_list.includes(inventory_items[i].name)){
+            deposit_items.push(inventory_items[i]);
+          }
+        }
+        debug(`Deposit Item Size: ${deposit_items.length}`);
+        debug("Start Deposit");
+        await depositItems(chest, deposit_items);
+        debug("Finish Deposit");
+        bot.closeWindow(chest);
+      }else{
+        debug("I Can't find any box !!!");
+        throw Error("I Can't find any box !!!");
       }
-      debug(`Deposit Item Size: ${deposit_items.length}`);
-      debug("Start Deposit");
-      await depositItems(chest, deposit_items);
-      debug("Finish Deposit");
-      bot.closeWindow(chest);
-    }else{
-      debug("I Can't find any box !!!");
-      throw Error("I Can't find any box !!!");
     }
   }
 
