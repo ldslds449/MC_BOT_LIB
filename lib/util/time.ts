@@ -18,6 +18,7 @@ export async function onlyWaitForSpecTime(task:Promise<any>, time_limit:number, 
       clearTimeout(timer);
       return true;
     }).catch((err) => {
+      clearTimeout(timer);
       debug(err); 
       return false;
     })
