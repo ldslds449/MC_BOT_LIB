@@ -15,7 +15,7 @@ export interface eatConfig{
 export async function autoEat(bot:mineflayer.Bot, config:eatConfig):Promise<boolean> {
   const EATTIME = 32; // eat time: 32 ticks
 
-  debug(`Health: ${Math.floor(bot.health)}`, `Food: ${Math.floor(bot.food)}`);
+  debug(`Health: ${Math.floor(bot.health)}`, `Hunger: ${Math.floor(bot.food)}`);
 
   // eat condition
   if(bot.food != undefined && bot.health != undefined){
@@ -49,7 +49,8 @@ export async function autoEat(bot:mineflayer.Bot, config:eatConfig):Promise<bool
       }
 
       if(isHeld || found){
-        debug(`Food Count: ${bot.heldItem.count}`);
+        if(config.offhand) debug(`Food Count: ${bot.inventory.slots[bot.getEquipmentDestSlot('off-hand')].count}`);
+        else debug(`Food Count: ${bot.heldItem.count}`);
 
         // eat the food
         bot.activateItem(config.offhand);
@@ -64,13 +65,16 @@ export async function autoEat(bot:mineflayer.Bot, config:eatConfig):Promise<bool
           }, EATTIME * 2 * 50); // 1 tick = 0.05 (s) = 50 (ms)
         });
         
-        return Promise.race([timeout_promise, bot.consume().then(() => {
+        return await Promise.race([timeout_promise, bot.consume().then(() => {
+          clearTimeout(timer);
           return true;
         }).catch(() => {
+          clearTimeout(timer);
           return false;
         })]);
       }else{
         debug("I don't have any food QAQ");
+        throw Error("I don't have any food QAQ");
       }
     }
   }
