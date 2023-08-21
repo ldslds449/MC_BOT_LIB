@@ -107,25 +107,18 @@ async function changeTool(bot:mineflayer.Bot, tool:string, durability_percentage
           if(old_tool){
             debug(`Old Tool: ${old_tool.displayName} At ${old_tool.slot}`);
             // transfer
-            do{
-              await bot.simpleClick.leftMouse(old_tool.slot);
-            }while(ender_window.selectedItem == null);
+            // do{
+              //   await bot.simpleClick.leftMouse(old_tool.slot);
+              //   await bot.waitForTicks(20);
+              // }while(ender_window.selectedItem == null);
+            bot.clickWindow(old_tool.slot, 0, 0);
             const ender_empty_slot = ender_window.firstEmptySlotRange(0, ender_window.inventoryStart);
             debug(`Old Tool Destination: ${ender_empty_slot}`);
-            do{
-              await bot.simpleClick.leftMouse(ender_empty_slot);
-            }while(ender_window.selectedItem != null);
-            // await bot.transfer({
-            //   window: ender_window,
-            //   itemType: old_tool.type,
-            //   metadata: old_tool.metadata,
-            //   count: old_tool.count,
-            //   nbt: old_tool.nbt,
-            //   sourceStart: ender_window.inventoryStart,
-            //   sourceEnd: ender_window.inventoryEnd,
-            //   destStart: 0,
-            //   destEnd: ender_window.inventoryStart
-            // });
+            // do{
+            //   await bot.simpleClick.leftMouse(ender_empty_slot);
+            //   await bot.waitForTicks(20);
+            // }while(ender_window.selectedItem != null);
+            bot.clickWindow(ender_empty_slot, 0, 0);
           }else{
             debug('No old tool');
           }
@@ -133,26 +126,19 @@ async function changeTool(bot:mineflayer.Bot, tool:string, durability_percentage
           // withdraw new tool
           debug(`Withdraw New Tool: ${new_tool.displayName} (${new_tool.type}, ${new_tool.metadata})`);
           // transfer
-          do{
-            await bot.simpleClick.leftMouse(new_tool.slot);
-          }while(ender_window.selectedItem == null);
+          // do{
+          //   await bot.simpleClick.leftMouse(new_tool.slot);
+          //   await bot.waitForTicks(20);
+          // }while(ender_window.selectedItem == null);
+          bot.clickWindow(new_tool.slot, 0, 0);
           const ender_empty_slot = ender_window.firstEmptySlotRange(ender_window.inventoryStart, ender_window.inventoryEnd);
           if(!ender_empty_slot) throw Error('My Inventory is Full');
           debug(`New Tool Destination: ${ender_empty_slot}`);
-          do{
-            await bot.simpleClick.leftMouse(ender_empty_slot);
-          }while(ender_window.selectedItem != null);
-          // await bot.transfer({
-          //   window: ender_window,
-          //   itemType: new_tool.type,
-          //   metadata: new_tool.metadata,
-          //   count: new_tool.count,
-          //   nbt: new_tool.nbt,
-          //   sourceStart: 0,
-          //   sourceEnd: ender_window.inventoryStart,
-          //   destStart: ender_window.inventoryStart,
-          //   destEnd: ender_window.inventoryEnd
-          // });
+          // do{
+          //   await bot.simpleClick.leftMouse(ender_empty_slot);
+          //   await bot.waitForTicks(20);
+          // }while(ender_window.selectedItem != null);
+          bot.clickWindow(ender_empty_slot, 0, 0);
           bot.closeWindow(ender_window);
 
           // equip new tool
@@ -270,10 +256,10 @@ export async function *digBlocks(bot:mineflayer.Bot, config:digBlocksConfig) {
   debug(targets.map((b:Block) => b.position));
 
   // find all blocks far away from me
-  if(config.ctop && targets.length == 0){
+  if(targets.length == 0){
     debug("============ Find High Target ============");
     let high_targets = findBlocks(bot, config.target_blocks, 
-      [32, Math.abs(config.range[1].y-bot.entity.position.y)+1, 32], 
+      [48, Math.abs(config.range[1].y-config.range[0].y)+1, 48], 
       config.range, false);
     // sort from nearest to farthest
     high_targets.sort((a:Block, b:Block) => {
@@ -293,16 +279,18 @@ export async function *digBlocks(bot:mineflayer.Bot, config:digBlocksConfig) {
           continue;
         }
         debug(`Location: ${bot.entity.position} Arrived`);
-        debug('Use ctop');
-        await onlyWaitForSpecTime(new Promise<void>((resolve) => {
-          bot.once('forcedMove', () => {
-            resolve();
-            bot.waitForChunksToLoad();
-            debug('Move Success');
-          });
-          bot.chat('/ctop');
-        }), 5*1000, null);
-        debug(`Location: ${bot.entity.position}`);
+        if(config.ctop){
+          debug('Use ctop');
+          await onlyWaitForSpecTime(new Promise<void>((resolve) => {
+            bot.once('forcedMove', () => {
+              resolve();
+              bot.waitForChunksToLoad();
+              debug('Move Success');
+            });
+            bot.chat('/ctop');
+          }), 5*1000, null);
+          debug(`Location: ${bot.entity.position}`);
+        }
         return true;
       }
     }
@@ -335,8 +323,8 @@ export async function *digBlocks(bot:mineflayer.Bot, config:digBlocksConfig) {
 
     // find blocks with a larger range
     const offset = 16;
-    const max_retry_x = Math.floor((Math.abs(config.range[1].x-config.range[0].x+1)) / offset);
-    const max_retry_z = Math.floor((Math.abs(config.range[1].z-config.range[0].z+1)) / offset);
+    const max_retry_x = Math.floor((Math.abs(config.range[1].x-config.range[0].x+1)-offset) / offset);
+    const max_retry_z = Math.floor((Math.abs(config.range[1].z-config.range[0].z+1)-offset) / offset);
     const max_retry = max_retry_x * max_retry_z;
     debug(`Max Retry: ${max_retry}`);
 
@@ -349,7 +337,7 @@ export async function *digBlocks(bot:mineflayer.Bot, config:digBlocksConfig) {
       yield true;
 
       targets = findBlocks(bot, config.target_blocks, 
-        [32, config.range[1].y-config.range[0].y+1, 32], config.range, false);
+        [48, Math.abs(config.range[1].y-config.range[0].y)+1, 48], config.range, false);
       // if still no target, then walk to fixed location any try again
       const row = Math.floor(retry/max_retry_z);
       const col = retry % max_retry_z;
@@ -361,6 +349,7 @@ export async function *digBlocks(bot:mineflayer.Bot, config:digBlocksConfig) {
           (config.range[1].z - offset*col - offset/2));
       debug(`Retry Location: ${retry_loc}`);
       await walk(retry_loc, 60*1000, 0);
+      await bot.waitForChunksToLoad();
       retry++;
     }
 
@@ -389,7 +378,7 @@ export async function *digBlocks(bot:mineflayer.Bot, config:digBlocksConfig) {
     // dig loop
     for(let i = 0; i < targets.length; i++){
       // check danger & food
-      yield true;
+      if(i % 10 == 9) yield true;
       // check block state
       if(!bot.canDigBlock(targets[i])) continue;
       // dig
@@ -427,7 +416,7 @@ export async function *digBlocks(bot:mineflayer.Bot, config:digBlocksConfig) {
     while(collect_loop < 15 && dropped_item.length > 0){
       if(bot.inventory.emptySlotCount() < config.inventory_empty_min) break;
       // check danger & food
-      yield true;
+      if(collect_loop % 5 == 4) yield true;
       const en = dropped_item.shift();
       debug(`Collect ${en.displayName} At ${en.position}`);
       await bot.lookAt(en.position, true);
@@ -447,10 +436,12 @@ export async function *digBlocks(bot:mineflayer.Bot, config:digBlocksConfig) {
     await onlyWaitForSpecTime(new Promise<void>(async (resolve) => {
       while(Math.abs(bot.entity.velocity.y) > 0.1){
         debug(`Velocity: ${bot.entity.velocity}`);
-        await bot.waitForTicks(5);
+        await bot.waitForTicks(20);
       }
+      await bot.waitForChunksToLoad();
       resolve();
     }), 10*1000, null);
+    await bot.waitForTicks(10);
 
     // put items
     debug(`Empty Slot: ${bot.inventory.emptySlotCount()}`);
@@ -471,6 +462,7 @@ export async function *digBlocks(bot:mineflayer.Bot, config:digBlocksConfig) {
         const loc_block_candidates = findBlocks(bot, undefined, [config.maxDistance, 2, config.maxDistance],
           [config.range[0].offset(-1,-1,-1), config.range[1].offset(1,1,1)], true);
         let loc_block:Block = undefined, place_result = false;
+        debug(`Location Candidate: ${loc_block_candidates.length}`);
         for(let i = 0; i < loc_block_candidates.length; ++i){
           if(loc_block_candidates[i].name != 'air' && 
               bot.blockAt(loc_block_candidates[i].position.offset(0, 1, 0)).name == 'air' &&
