@@ -3,6 +3,7 @@ import fs from 'fs';
 
 import mineflayer from 'mineflayer'
 import { Vec3 } from 'vec3'
+import { Entity } from 'prismarine-entity'
 import { program } from 'commander';
 import { BotFactory } from './lib/bot/create';
 import { MicrosoftTokenDeviceHelper } from './lib/account/token/microsoft/device';
@@ -106,9 +107,12 @@ function createTasks(act:Action[]):{[name:string]:((bot:mineflayer.Bot) => Promi
 
       tasks.AutoEat = async (bot:mineflayer.Bot) => {
         let ate:boolean;
+        let ate_time = 0;
         do{
           ate = await autoEat(bot, config);
-        }while(ate);  // try to eat again
+          if(ate) ate_time++;
+          else ate_time = 0;
+        }while(ate && ate_time <= 5);  // try to eat again
       };
     }else if(act[i] == Action.DigBlocks){
       const registry = require('prismarine-registry')(version);
@@ -197,7 +201,8 @@ function createTasks(act:Action[]):{[name:string]:((bot:mineflayer.Bot) => Promi
             }
             // bot.chat("I can't find any target, so I quit.");
             debug("I can't find any target, so I quit.");
-            throw Error('No Target');
+            // @ts-ignore
+            bot.emit('finish', 'No target, Bye ~~');
           }
         }
         
@@ -246,14 +251,16 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
   bot.instance.loadPlugin(pathfinder);
 
   // run_all_tasks
-  let keep_running = true;
+  let keep_running = true, running = false;
   async function run_all_tasks(){
     keep_running = true;
 
     // run tasks
     try{
       while(keep_running){
+        running = true;
         for(const act in tasks){
+          if(!keep_running) break;
           console.log(`> ${act} <`);
           await tasks[act](bot.instance);
         }
@@ -262,6 +269,7 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
       console.log(err); debug(err); 
     }finally{
       keep_running = false;
+      running = false;
     };
   }
   
@@ -271,17 +279,22 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
   });
   bot.instance.on("error", (err) => {
     console.error(err);
+    bot.instance.end(err.toString());
   });
   bot.instance.on("kicked", (err) => {
     console.error(err);
   });
-  bot.instance.on('death', async () => {
+  bot.instance.on('death', () => {
     debug('Death');
-    await bot.instance.waitForTicks(20);
-    keep_running = false;
-    bot.instance.chat("I'm dead. Back to previous location.");
-    if(cfg.Action.backAfterDead) bot.instance.chat('/back');
-    if(cfg.Action.autoWorkAfterDead) await run_all_tasks();
+  });
+  bot.instance.on('health', () => {
+    debug(`Change: Health ${bot.instance.health}, Food ${bot.instance.food}`);
+  });
+  bot.instance.on('entityDead', (entity:Entity) => {
+    debug(`Entity ${entity.type === 'player' ? entity.username : entity.displayName} dead.`);
+  });
+  bot.instance.on('entityHurt', (entity:Entity) => {
+    debug(`Entity ${entity.type === 'player' ? entity.username : entity.displayName} hurt.`);
   });
   bot.instance.on('playerCollect', (collector, collected) => {
     if (collector.type === 'player' && collected != undefined && collected.objectType == 'Item' &&
@@ -297,12 +310,14 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
     // check waiting message
     const regex_wait = new RegExp('Summoned to wait by CONSOLE', 'm');
     const regex_back = new RegExp('Summoned to server(\\d+) by CONSOLE', 'm');
+    let prev_keep_running:boolean = false;
     if(text.match(regex_wait)){
       debug('Transfered to waiting room');
       bot.instance.chat('Transfered to waiting room');
       if(cfg.Action.stopInWaitRoom){
         debug('Stop actions');
         bot.instance.chat('Stop actions');
+        prev_keep_running = keep_running;
         keep_running = false;
       }
       return;
@@ -313,7 +328,7 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
       if(cfg.Action.autoWorkAfterWait){
         debug('Start actions');
         bot.instance.chat('Start actions');
-        await run_all_tasks();
+        if(prev_keep_running) await run_all_tasks();
       }
       return;
     }
@@ -368,6 +383,14 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
         debug(resp_str);
         bot.instance.chat(`Repley ${tpa_sender}: ${resp_str}`);
       }
+    }else if(text.includes('使用 /back 返回死亡位置')){
+      prev_keep_running = keep_running;
+      keep_running = false;
+      await bot.instance.waitForTicks(60);
+      bot.instance.chat("I'm dead. Back to previous location.");
+      while(running) await bot.instance.waitForTicks(10);
+      if(cfg.Action.backAfterDead) bot.instance.chat('/back');
+      if(cfg.Action.autoWorkAfterDead && prev_keep_running) await run_all_tasks();
     }else{
       const regex_cmd = new RegExp(`\\[${cfg.Control.channel}] \\[-] <(.+)>`, 'm');
       const sender = checkSender(regex_cmd);
@@ -379,6 +402,7 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
         if(cfg.Control.Command.work && content == '//work'){
           debug('Command: Work');
           debug(`keep_running: ${keep_running}`);
+          debug(`running: ${running}`);
           if(keep_running){
             bot.instance.chat(`Repley ${sender}: I'm already working. To stop, please use stop command`);
           }else{
@@ -393,7 +417,7 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
           debug('Command: State');
 
           // all state
-          const state_str = keep_running ? "Working" : "Do nothing";
+          const state_str = running ? "Working" : "Do nothing";
           const loc = bot.instance.entity.position;
           const loc_str = `(X: ${Math.round(loc.x)}, Y: ${Math.round(loc.y)}, Z: ${Math.round(loc.z)})`;
           const health_str = `${Math.floor(bot.instance.health)}`;
@@ -401,7 +425,7 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
           const saturation_str = `${Math.floor(bot.instance.foodSaturation)}`;
           const exp_str = `(LV ${bot.instance.experience.points}, ${Math.floor(bot.instance.experience.progress*100)}%)`;
 
-          bot.instance.chat(`Repley ${sender}: State: ${state_str}, Location: ${loc_str}, Health: ${health_str}, Food: ${food_str}, Saturation:${saturation_str}, Exp: ${exp_str}`);
+          bot.instance.chat(`Repley ${sender}: State: ${state_str}, Location: ${loc_str}, Health: ${health_str}, Hunger: ${food_str}, Saturation:${saturation_str}, Exp: ${exp_str}`);
         }else if(cfg.Control.Command.listAction && content == '//listAction'){
           debug('Command: List Action');
           let msg_arr:string[] = [];
@@ -410,6 +434,7 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
         }else if(cfg.Control.Command.addAction && content.startsWith('//addAction ')){
           debug('Command: Add Action');
           debug(`keep_running: ${keep_running}`);
+          debug(`running: ${running}`);
           if(keep_running){
             bot.instance.chat(`Repley ${sender}: Please stop working first.`);
             return;
@@ -474,11 +499,19 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
     }
   });
 
+  let isFinish = false;
+  // @ts-ignore
+  bot.instance.on('finish', (reason:string) => {
+    debug(reason);
+    isFinish = true;
+    bot.instance.end(reason);
+  });
+
   // Reconnect
   let reconnect_time = 0;
   bot.instance.on('end', () => {
     debug('Disconnect');
-    if(cfg.Reconnect.enable && 
+    if(!isFinish && cfg.Reconnect.enable && 
       (reconnect_time < cfg.Reconnect.maxLimit || cfg.Reconnect.maxLimit == -1)){
       setTimeout(() => { routine(tasks); }, cfg.Reconnect.delay*1000);
     }
