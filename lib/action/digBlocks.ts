@@ -241,7 +241,6 @@ export async function *digBlocks(bot:mineflayer.Bot, config:digBlocksConfig) {
     [config.maxDistance, config.maxDistance, config.maxDistance], config.range, true);
   debug(`Find ${targets.length} targets`);
   sortTargetsByAngelandDistance(bot, targets);
-  debug(`Bot Location: ${bot.entity.position}, Floor: ${bot.entity.position.floored()}`);
   debug(targets.map((b:Block) => b.position));
 
   // find all blocks far away from me
@@ -312,7 +311,7 @@ export async function *digBlocks(bot:mineflayer.Bot, config:digBlocksConfig) {
     }
 
     // find blocks with a larger range
-    const offset = 8;
+    const offset = 16;
     const max_retry_x = Math.floor((Math.abs(config.range[1].x-config.range[0].x+1)-offset) / offset);
     const max_retry_z = Math.floor((Math.abs(config.range[1].z-config.range[0].z+1)-offset) / offset);
     const max_retry = max_retry_x * max_retry_z;
@@ -328,6 +327,8 @@ export async function *digBlocks(bot:mineflayer.Bot, config:digBlocksConfig) {
 
       targets = findBlocks(bot, config.target_blocks, 
         [48, Math.abs(config.range[1].y-config.range[0].y)+1, 48], config.range, false);
+      if(targets.length > 0) break;
+
       // if still no target, then walk to fixed location any try again
       const row = Math.floor(retry/max_retry_z);
       const col = retry % max_retry_z;
@@ -339,7 +340,6 @@ export async function *digBlocks(bot:mineflayer.Bot, config:digBlocksConfig) {
           (config.range[1].z - offset*col - offset/2));
       debug(`Retry Location: ${retry_loc}`);
       await walk(retry_loc, 60*1000, 0);
-      await bot.waitForTicks(40);
       await bot.waitForChunksToLoad();
       retry++;
     }
