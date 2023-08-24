@@ -197,7 +197,8 @@ function depositItems(container:mineflayer.Chest, items:Item[]):Promise<void>{
 }
 
 function sortTargetsByAngelandDistance(bot:mineflayer.Bot, arr:Block[]|Entity[]){
-  const bot_pos = bot.blockAt(bot.entity.position.offset(0, 0, 0)).position;
+  const bot_pos = bot.entity.position.floored();
+  debug(`Bot Floor Location: ${bot_pos}`);
   const theta = function(t:Vec3){
     // calculate theta by inner product
     const base = new Vec3(1, 0, 0);
@@ -211,28 +212,26 @@ function sortTargetsByAngelandDistance(bot:mineflayer.Bot, arr:Block[]|Entity[])
   }
 
   arr.sort((a:Block|Entity, b:Block|Entity):number => {
-    if(a.position == bot_pos.offset(0, -1, 0)) return 1;
-    if(b.position == bot_pos.offset(0, -1, 0)) return -1;
+    if(bot_pos.offset(0, -1, 0).equals(a.position)) return 1;
+    if(bot_pos.offset(0, -1, 0).equals(b.position)) return -1;
     if(bot_pos.y-1 == a.position.y && bot_pos.y-1 != b.position.y) return 1;
     if(bot_pos.y-1 != a.position.y && bot_pos.y-1 == b.position.y) return -1;
-    const a_dist = bot_pos.offset(0, -1, 0).xzDistanceTo(a.position);
-    const b_dist = bot_pos.offset(0, -1, 0).xzDistanceTo(b.position);
-    // if(bot_pos.y-1 == a.position.y && bot_pos.y-1 == b.position.y &&
-    //   (a_dist <= 1.5 || b_dist <= 1.5)){
-    //   if(a_dist <= 1.5 && b_dist <= 1.5){
-    //     return b_dist - a_dist;
-    //   }else if(a_dist <= 1.5){
-    //     return 1;
-    //   }else if(b_dist <= 1.5){
-    //     return -1;
-    //   }
-    // }
     const a_theta = theta(a.position);
     const b_theta = theta(b.position);
     if(a_theta != b_theta) return a_theta - b_theta;
     if(a.position.y != b.position.y) return b.position.y - a.position.y;
+    const a_dist = bot_pos.offset(0, -1, 0).xzDistanceTo(a.position);
+    const b_dist = bot_pos.offset(0, -1, 0).xzDistanceTo(b.position);
     return a_dist - b_dist;
-  })
+  });
+
+  // check
+  for(let i = 0; i < arr.length; ++i){
+    if(bot_pos.offset(0, -1, 0).equals(arr[i].position)){
+      debug(`Floor Block: ${arr[i].position}`);
+      if(i != arr.length-1) throw Error("Strange Order !");
+    }
+  }
 }
 
 export async function *digBlocks(bot:mineflayer.Bot, config:digBlocksConfig) {
@@ -242,7 +241,7 @@ export async function *digBlocks(bot:mineflayer.Bot, config:digBlocksConfig) {
     [config.maxDistance, config.maxDistance, config.maxDistance], config.range, true);
   debug(`Find ${targets.length} targets`);
   sortTargetsByAngelandDistance(bot, targets);
-  debug(`Bot Location: ${bot.entity.position}`);
+  debug(`Bot Location: ${bot.entity.position}, Floor: ${bot.entity.position.floored()}`);
   debug(targets.map((b:Block) => b.position));
 
   // find all blocks far away from me
@@ -279,7 +278,7 @@ export async function *digBlocks(bot:mineflayer.Bot, config:digBlocksConfig) {
             bot.chat('/ctop');
           }), 5*1000, null);
           debug(`Location: ${bot.entity.position}`);
-          await bot.waitForTicks(20);
+          await bot.waitForTicks(5);
           await bot.waitForChunksToLoad();
         }
         return true;
@@ -340,7 +339,7 @@ export async function *digBlocks(bot:mineflayer.Bot, config:digBlocksConfig) {
           (config.range[1].z - offset*col - offset/2));
       debug(`Retry Location: ${retry_loc}`);
       await walk(retry_loc, 60*1000, 0);
-      await bot.waitForTicks(20);
+      await bot.waitForTicks(40);
       await bot.waitForChunksToLoad();
       retry++;
     }
