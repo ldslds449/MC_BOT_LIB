@@ -242,6 +242,7 @@ export async function *digBlocks(bot:mineflayer.Bot, config:digBlocksConfig) {
     [config.maxDistance, config.maxDistance, config.maxDistance], config.range, true);
   debug(`Find ${targets.length} targets`);
   sortTargetsByAngelandDistance(bot, targets);
+  debug(`Bot Location: ${bot.entity.position}`);
   debug(targets.map((b:Block) => b.position));
 
   // find all blocks far away from me
@@ -271,7 +272,7 @@ export async function *digBlocks(bot:mineflayer.Bot, config:digBlocksConfig) {
         if(config.ctop){
           debug('Use ctop');
           await onlyWaitForSpecTime(new Promise<void>((resolve) => {
-            bot.once('forcedMove', async () => {
+            bot.once('forcedMove', () => {
               debug('Move Success');
               resolve();
             });
@@ -404,7 +405,8 @@ export async function *digBlocks(bot:mineflayer.Bot, config:digBlocksConfig) {
     for(const id in bot.entities){ 
       if(bot.entities[id].objectType == 'Item' &&
         bot.entities[id].position.y <= bot.entity.position.y &&
-        inside(config.range[0], config.range[1], bot.entities[id].position) &&
+        inside(config.range[0].offset(-2, 0, -2), config.range[1].offset(2, 0, 2), 
+          bot.entities[id].position) &&
         (config.target_blocks.includes(bot.entities[id].getDroppedItem().name) ||
           bot.entities[id].getDroppedItem().name == config.item_container)){ 
         debug(bot.entities[id].getDroppedItem());

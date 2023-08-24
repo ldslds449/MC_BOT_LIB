@@ -9,11 +9,11 @@ import { BotFactory } from './lib/bot/create';
 import { MicrosoftTokenDeviceHelper } from './lib/account/token/microsoft/device';
 import { Token } from './lib/account/helper';
 import { attackEntity, attackConfig } from './lib/action/attack';
-import { craft } from './lib/action/autoCraft';
-import { treeChop } from './lib/action/treeChop';
+// import { craft } from './lib/action/autoCraft';
+// import { treeChop } from './lib/action/treeChop';
 import { digBlocks, digBlocksConfig } from './lib/action/digBlocks';
 import { autoEat, eatConfig } from './lib/action/autoEat';
-import { sleep } from './lib/util/time';
+// import { sleep } from './lib/util/time';
 import { inside } from './lib/util/inside';
 import { draw } from './lib/viewer/draw';
 import { onlyWaitForSpecTime } from './lib/util/time';
@@ -303,201 +303,277 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
       if(item) debug(`Collected ${item.count} ${item.displayName}`);
     }
   });
-  bot.instance.on("message", async (jsonMsg, position) => {
-    const text = jsonMsg.toString();
-    debug(text);
-
-    // check waiting message
-    const regex_wait = new RegExp('Summoned to wait by CONSOLE', 'm');
-    const regex_back = new RegExp('Summoned to server(\\d+) by CONSOLE', 'm');
-    let prev_keep_running:boolean = false;
-    if(text.match(regex_wait)){
-      debug('Transfered to waiting room');
-      bot.instance.chat('Transfered to waiting room');
-      if(cfg.Action.stopInWaitRoom){
-        debug('Stop actions');
-        bot.instance.chat('Stop actions');
-        prev_keep_running = keep_running;
-        keep_running = false;
-      }
-      return;
-    }else if(text.match(regex_back)){
-      const channel = text.match(regex_back)[1];
-      debug(`Transfered to channel ${channel}`);
-      bot.instance.chat(`Transfered to channel ${channel}`);
-      if(cfg.Action.autoWorkAfterWait){
-        debug('Start actions');
-        bot.instance.chat('Start actions');
-        if(prev_keep_running) await run_all_tasks();
-      }
-      return;
-    }
-    
-    const checkSender = (regex:RegExp):string => {
-      if(regex.test(text)){
-        const player = text.match(regex)[1];
-        debug(`Sender: ${player}`);
-        if(cfg.Control.listType == 'white' && cfg.Control.list.includes(player) ||
-          cfg.Control.listType == 'black' && !cfg.Control.list.includes(player)){
-            return player;
-        }
-      }
-      return null;
-    }
-
-    const regex_tpa = new RegExp('[系統] (.+) 想要傳送到 你 的位置', 'm');
-    const regex_tph = new RegExp('[系統] (.+) 想要你傳送到 該玩家 的位置', 'm');
-    const tpa_sender = checkSender(regex_tpa);
-    const tph_sender = checkSender(regex_tph);
-    if((cfg.Control.Command.TPA && tpa_sender) || (cfg.Control.Command.TPH && tph_sender)){
-      if(cfg.Control.Command.TPA){
-        debug('Command: TPA');
-        bot.instance.chat(`Repley ${tpa_sender}: TPA OK`);
-      }else{
-        debug('Command: TPH');
-        bot.instance.chat(`Repley ${tph_sender}: TPH OK`);
-      }
-
-      let waitResp:any;
-      const success = await onlyWaitForSpecTime(
-        new Promise<void>((resolve) => {
-          waitResp = function (jsonMsg){
-            const tp_resp = jsonMsg.toString() as string;
-            if(tp_resp.includes('接受') && tp_resp.includes('拒絕')){
-              bot.instance.chat('/tok');
-              resolve();
-            }
-          }
-          bot.instance.on("message", waitResp);
-        }).finally(() => {
-          bot.instance.off("message", waitResp);
-        }), 
-        5*1000, null);
-
-      if(cfg.Control.Command.TPA){
-        const resp_str = `TPA ${success ? "Successfully" : "Failed"}`;
-        debug(resp_str);
-        bot.instance.chat(`Repley ${tpa_sender}: ${resp_str}`);
-      }else{
-        const resp_str = `TPH ${success ? "Successfully" : "Failed"}`;
-        debug(resp_str);
-        bot.instance.chat(`Repley ${tpa_sender}: ${resp_str}`);
-      }
-    }else if(text.includes('使用 /back 返回死亡位置')){
+  // ================== Chat Pattern ================== //
+  let prev_keep_running:boolean = false;
+  // @ts-ignore
+  bot.instance.on('chat:summon_to_waiting_room', (matches) => {
+    debug('Transfered to waiting room');
+    bot.instance.chat('Transfered to waiting room');
+    if(cfg.Action.stopInWaitRoom){
+      debug('Stop actions');
       prev_keep_running = keep_running;
       keep_running = false;
-      await bot.instance.waitForTicks(60);
-      bot.instance.chat("I'm dead. Back to previous location.");
-      while(running) await bot.instance.waitForTicks(10);
-      if(cfg.Action.backAfterDead) bot.instance.chat('/back');
-      if(cfg.Action.autoWorkAfterDead && prev_keep_running) await run_all_tasks();
-    }else{
-      const regex_cmd = new RegExp(`\\[${cfg.Control.channel}] \\[-] <(.+)>`, 'm');
-      const sender = checkSender(regex_cmd);
-      if(sender){
-        const regex_msg = new RegExp(`\\[${cfg.Control.channel}] \\[-] <.+> (.*)`, 'm');
-        const content = text.match(regex_msg)[1];
-        
-        debug(`Content: ${content}`);
-        if(cfg.Control.Command.work && content == '//work'){
-          debug('Command: Work');
-          debug(`keep_running: ${keep_running}`);
-          debug(`running: ${running}`);
-          if(keep_running){
-            bot.instance.chat(`Repley ${sender}: I'm already working. To stop, please use stop command`);
-          }else{
-            bot.instance.chat(`Repley ${sender}: Work OK`);
-            await run_all_tasks();
-          }
-        }else if(cfg.Control.Command.stop && content == '//stop'){
-          debug('Command: Stop');
-          keep_running = false;
-          bot.instance.chat(`Repley ${sender}: Stop OK`);
-        }else if(cfg.Control.Command.state && content == '//state'){
-          debug('Command: State');
-
-          // all state
-          const state_str = running ? "Working" : "Do nothing";
-          const loc = bot.instance.entity.position;
-          const loc_str = `(X: ${Math.round(loc.x)}, Y: ${Math.round(loc.y)}, Z: ${Math.round(loc.z)})`;
-          const health_str = `${Math.floor(bot.instance.health)}`;
-          const food_str = `${Math.floor(bot.instance.food)}`;
-          const saturation_str = `${Math.floor(bot.instance.foodSaturation)}`;
-          const exp_str = `(LV ${bot.instance.experience.points}, ${Math.floor(bot.instance.experience.progress*100)}%)`;
-
-          bot.instance.chat(`Repley ${sender}: State: ${state_str}, Location: ${loc_str}, Health: ${health_str}, Hunger: ${food_str}, Saturation:${saturation_str}, Exp: ${exp_str}`);
-        }else if(cfg.Control.Command.listAction && content == '//listAction'){
-          debug('Command: List Action');
-          let msg_arr:string[] = [];
-          for(const act in tasks) msg_arr.push(act);
-          bot.instance.chat(`Actions: ${msg_arr.join(", ")}`);
-        }else if(cfg.Control.Command.addAction && content.startsWith('//addAction ')){
-          debug('Command: Add Action');
-          debug(`keep_running: ${keep_running}`);
-          debug(`running: ${running}`);
-          if(keep_running){
-            bot.instance.chat(`Repley ${sender}: Please stop working first.`);
-            return;
-          }
-          const action_name = content.replace('//addAction ', '');
-          debug(`Action Name: ${action_name}`);
-          if(action_name in tasks){
-            bot.instance.chat(`Repley ${sender}: ${action_name} is already in the Action list.`);
-            return;
-          }
-          const new_action = Action[action_name as keyof typeof Action];
-          if(!new_action){
-            bot.instance.chat(`Repley ${sender}: Unknown action: ${action_name}`);
-            return;
-          }
-          debug(`Add Task: ${action_name}`);
-          const new_task = createTasks([new_action]);
-          tasks[action_name] = new_task[0];
-          bot.instance.chat(`Repley ${sender}: ${action_name} Added, you must work manually.`);
-        }else if(cfg.Control.Command.exec && content.startsWith('//exec ')){
-          debug('Command: Execute');
-          const cmd = content.replace('//exec ', '');
-          bot.instance.chat(`Repley ${sender}: Ok, execute "${cmd}"`);
-          bot.instance.chat(cmd);
-        }else if(cfg.Control.Command.draw && content == '//draw'){
-          debug('Command: Draw');
-          bot.instance.chat(`Repley ${sender}: Ok, Draw`);
-          await draw(bot.instance);
-        }else if(cfg.Control.Command.csafe && content == '//csafe'){
-          debug('Command: csafe');
-          bot.instance.chat(`Repley ${sender}: csafe OK`);
-
-          let waitResp:any;
-          const success = await onlyWaitForSpecTime(
-            new Promise<void>((resolve) => {
-              waitResp = function (jsonMsg){
-                const csafe_resp = jsonMsg.toString() as string;
-                if(csafe_resp.includes('這個領地內的區域')){
-                  if(csafe_resp.includes('不會')){
-                    resolve();
-                  }else{
-                    bot.instance.chat('/csafe');
-                  }
-                }
-              }
-              // bot.instance.awaitMessage();
-              bot.instance.on("message", waitResp);
-              bot.instance.chat('/csafe');
-            }).finally(() => {
-              bot.instance.off("message", waitResp);
-            }), 
-            5*1000, null);
-          bot.instance.chat(`Repley ${sender}: csafe ${success ? "Successfully" : "Failed"}`);
-        }else if(content == '//help'){
-          debug('Command: Help');
-          let msg_arr:string[] = [];
-          for(const cmd in cfg.Control.Command){
-            if(cfg.Control.Command[cmd]) msg_arr.push(cmd.toString());
-          }
-          bot.instance.chat(`Commands: ${msg_arr.join(", ")}`);
-        }
+      bot.instance.chat('Stop actions');
+    }
+  });
+  // @ts-ignore
+  bot.instance.on('chat:summon_to_channel', async (matches) => {
+    const channel = matches[0][0];
+    debug(`Transfered to channel ${channel}`);
+    bot.instance.chat(`Transfered to channel ${channel}`);
+    if(cfg.Action.autoWorkAfterWait){
+      if(prev_keep_running){
+        debug('Start actions');
+        bot.instance.chat('Start actions');
+        await run_all_tasks();
       }
     }
+  });
+  // @ts-ignore
+  bot.instance.on('chat:tpa', (matches) => {
+    const player = matches[0][0];
+    debug(`Command: TPA by ${player}`);
+    if(cfg.Control.listType == 'white' && cfg.Control.list.includes(player) ||
+      cfg.Control.listType == 'black' && !cfg.Control.list.includes(player)){
+        // start to reply ok
+        bot.instance.chat(`Repley ${player}: TPA OK`);
+        const success = onlyWaitForSpecTime(new Promise<void>((resolve) => {
+          bot.instance.once('forcedMove', () => resolve());
+          bot.instance.chat('/tok');
+        }), 10*1000, null);
+        if(success){
+          bot.instance.chat('TPA successfully.');
+        } else bot.instance.chat('TPA failed.');
+    }
+  });
+  // @ts-ignore
+  bot.instance.on('chat:tph', (matches) => {
+    const player = matches[0][0];
+    debug(`Command: TPH by ${player}`);
+    if(cfg.Control.listType == 'white' && cfg.Control.list.includes(player) ||
+      cfg.Control.listType == 'black' && !cfg.Control.list.includes(player)){
+        // start to reply ok
+        bot.instance.chat(`Repley ${player}: TPH OK`);
+        const success = onlyWaitForSpecTime(new Promise<void>((resolve) => {
+          bot.instance.once('forcedMove', () => resolve());
+          bot.instance.chat('/tok');
+        }), 10*1000, null);
+        if(success){
+          bot.instance.chat('TPH successfully.');
+        } else bot.instance.chat('TPH failed.');
+    }
+  });
+  // @ts-ignore
+  bot.instance.on('chat:death_back', async (matches) => {
+    debug('Death QAQ');
+    debug(`Keep Runnung ${keep_running}`);
+    debug(`Runnung ${running}`);
+    prev_keep_running = keep_running;
+    keep_running = false;
+    // wait for stop
+    while(running){
+      debug('Wait for stop...');
+      await bot.instance.waitForTicks(10);
+    }
+    debug(`backAfterDead: ${cfg.Action.backAfterDead}`);
+    if(cfg.Action.backAfterDead){
+      bot.instance.chat("I'm dead. Back to previous location.");
+      const success = onlyWaitForSpecTime(new Promise<void>((resolve) => {
+        bot.instance.once('forcedMove', () => resolve());
+        bot.instance.chat('/back');
+      }), 10*1000, null);
+      if(success){
+        bot.instance.chat('Back successfully.');
+        debug(`autoWorkAfterDead: ${cfg.Action.autoWorkAfterDead}`);
+        debug(`prev_keep_running: ${prev_keep_running}`);
+        if(cfg.Action.autoWorkAfterDead && prev_keep_running){
+          bot.instance.chat('Start working.');
+          await run_all_tasks();
+        }
+      } else bot.instance.chat('Back failed.');
+    }else{
+      bot.instance.chat("I'm dead.");
+    }
+  });
+  // @ts-ignore
+  bot.instance.on('chat:work', async (matches) => {
+    const player = matches[0][0];
+    debug(`Command: Work by ${player}`);
+    if(cfg.Control.listType == 'white' && cfg.Control.list.includes(player) ||
+      cfg.Control.listType == 'black' && !cfg.Control.list.includes(player)){
+        debug(`keep_running: ${keep_running}`);
+        debug(`running: ${running}`);
+        if(keep_running){
+          bot.instance.chat(`Repley ${player}: I'm already working. To stop, please use stop command`);
+        }else{
+          bot.instance.chat(`Repley ${player}: Work OK`);
+          if(running){
+            // wait for stop
+            while(running){
+              debug('Wait for stop...');
+              await bot.instance.waitForTicks(10);
+            }
+          }
+          bot.instance.chat(`Work successfully.`);
+          await run_all_tasks();
+        }
+    }
+  });
+  // @ts-ignore
+  bot.instance.on('chat:stop', async (matches) => {
+    const player = matches[0][0];
+    debug(`Command: Stop by ${player}`);
+    if(cfg.Control.listType == 'white' && cfg.Control.list.includes(player) ||
+      cfg.Control.listType == 'black' && !cfg.Control.list.includes(player)){
+        debug(`keep_running: ${keep_running}`);
+        debug(`running: ${running}`);
+        keep_running = false;
+        bot.instance.chat(`Repley ${player}: Stop OK`);
+        // wait for stop
+        while(running){
+          debug('Wait for stop...');
+          await bot.instance.waitForTicks(10);
+        }
+        bot.instance.chat(`Stop successfully.`);
+    }
+  });
+  // @ts-ignore
+  bot.instance.on('chat:state', (matches) => {
+    const player = matches[0][0];
+    debug(`Command: State by ${player}`);
+    if(cfg.Control.listType == 'white' && cfg.Control.list.includes(player) ||
+      cfg.Control.listType == 'black' && !cfg.Control.list.includes(player)){
+        // all state
+        const state_str = running ? "Working" : "Do nothing";
+        const loc = bot.instance.entity.position;
+        const loc_str = `(X: ${Math.round(loc.x)}, Y: ${Math.round(loc.y)}, Z: ${Math.round(loc.z)})`;
+        const health_str = `${Math.floor(bot.instance.health)}`;
+        const food_str = `${Math.floor(bot.instance.food)}`;
+        const saturation_str = `${Math.floor(bot.instance.foodSaturation)}`;
+        const exp_str = `(LV ${bot.instance.experience.points}, ${Math.floor(bot.instance.experience.progress*100)}%)`;
+
+        bot.instance.chat(`Repley ${player}: State: ${state_str}, Location: ${loc_str}, Health: ${health_str}, Hunger: ${food_str}, Saturation:${saturation_str}, Exp: ${exp_str}`);
+    }
+  });
+  // @ts-ignore
+  bot.instance.on('chat:listAction', (matches) => {
+    const player = matches[0][0];
+    debug(`Command: List Action by ${player}`);
+    if(cfg.Control.listType == 'white' && cfg.Control.list.includes(player) ||
+      cfg.Control.listType == 'black' && !cfg.Control.list.includes(player)){
+        let msg_arr:string[] = [];
+        for(const act in tasks) msg_arr.push(act);
+        bot.instance.chat(`Actions: ${msg_arr.join(", ")}`);
+    }
+  });
+  // @ts-ignore
+  bot.instance.on('chat:addAction ', (matches) => {
+    const player = matches[0][0];
+    const action_name = matches[0][1];
+    debug(`Command: Add Action ${action_name} by ${player}`);
+    if(cfg.Control.listType == 'white' && cfg.Control.list.includes(player) ||
+      cfg.Control.listType == 'black' && !cfg.Control.list.includes(player)){
+        debug(`keep_running: ${keep_running}`);
+        debug(`running: ${running}`);
+        if(keep_running){
+          bot.instance.chat(`Repley ${player}: Please stop working first.`);
+          return;
+        }
+        if(action_name in tasks){
+          bot.instance.chat(`Repley ${player}: ${action_name} is already in the Action list.`);
+          return;
+        }
+        const new_action = Action[action_name as keyof typeof Action];
+        if(!new_action){
+          bot.instance.chat(`Repley ${player}: Unknown action: ${action_name}`);
+          return;
+        }
+        debug(`Add Task: ${action_name}`);
+        const new_task = createTasks([new_action]);
+        tasks[action_name] = new_task[0];
+        bot.instance.chat(`Repley ${player}: ${action_name} Added, you must work manually.`);
+    }
+  });
+  // @ts-ignore
+  bot.instance.on('chat:exec ', (matches) => {
+    const player = matches[0][0];
+    const cmd = matches[0][1];
+    debug(`Command: Execute ${cmd} by ${player}`);
+    if(cfg.Control.listType == 'white' && cfg.Control.list.includes(player) ||
+      cfg.Control.listType == 'black' && !cfg.Control.list.includes(player)){
+        bot.instance.chat(`Repley ${player}: Ok, execute "${cmd}"`);
+        bot.instance.chat(cmd);
+    }
+  });
+  // @ts-ignore
+  bot.instance.on('chat:draw', async (matches) => {
+    const player = matches[0][0];
+    debug(`Command: Draw by ${player}`);
+    if(cfg.Control.listType == 'white' && cfg.Control.list.includes(player) ||
+      cfg.Control.listType == 'black' && !cfg.Control.list.includes(player)){
+        bot.instance.chat(`Repley ${player}: Ok, Draw`);
+        await draw(bot.instance);
+    }
+  });
+  // @ts-ignore
+  bot.instance.on('chat:csafe', async (matches) => {
+    const player = matches[0][0];
+    debug(`Command: Csafe by ${player}`);
+    if(cfg.Control.listType == 'white' && cfg.Control.list.includes(player) ||
+      cfg.Control.listType == 'black' && !cfg.Control.list.includes(player)){
+        bot.instance.chat(`Repley ${player}: csafe OK`);
+
+        let waitResp:any;
+        const success = await onlyWaitForSpecTime(
+          new Promise<void>((resolve) => {
+            waitResp = function (jsonMsg){
+              const csafe_resp = jsonMsg.toString() as string;
+              if(csafe_resp.includes('這個領地內的區域')){
+                if(csafe_resp.includes('不會')){
+                  resolve();
+                }else{
+                  bot.instance.chat('/csafe');
+                }
+              }
+            }
+            // bot.instance.awaitMessage();
+            bot.instance.on("message", waitResp);
+            bot.instance.chat('/csafe');
+          }).finally(() => {
+            bot.instance.off("message", waitResp);
+          }), 
+          5*1000, null);
+        bot.instance.chat(`Repley ${player}: csafe ${success ? "Successfully" : "Failed"}`);
+    }
+  });
+  // @ts-ignore
+  bot.instance.on('chat:exit', (matches) => {
+    const player = matches[0][0];
+    debug(`Command: Exit by ${player}`);
+    if(cfg.Control.listType == 'white' && cfg.Control.list.includes(player) ||
+      cfg.Control.listType == 'black' && !cfg.Control.list.includes(player)){
+        bot.instance.chat(`Repley ${player}: Exit OK, Bye ~~`);
+        // @ts-ignore
+        bot.instance.emit('finish', `Exit by ${player}`);
+    }
+  });
+  // @ts-ignore
+  bot.instance.on('chat:help', (matches) => {
+    const player = matches[0][0];
+    debug(`Command: Help by ${player}`);
+    if(cfg.Control.listType == 'white' && cfg.Control.list.includes(player) ||
+      cfg.Control.listType == 'black' && !cfg.Control.list.includes(player)){
+        let msg_arr:string[] = [];
+        for(const cmd in cfg.Control.Command){
+          if(cfg.Control.Command[cmd]) msg_arr.push(cmd.toString());
+        }
+        bot.instance.chat(`Commands: ${msg_arr.join(", ")}`);
+    }
+  });
+  
+  bot.instance.on("message", async (jsonMsg, _) => {
+    const text = jsonMsg.toString();
+    debug(`Message: ${text}`);
   });
 
   let isFinish = false;
@@ -519,12 +595,26 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
   })
 
   bot.instance.once('spawn', async () => {
+    await bot.instance.awaitMessage('[系統] 讀取人物成功。');
+
+    bot.instance.addChatPattern('summon_to_waiting_room', /Summoned to wait by CONSOLE/m, { parse: false, repeat: true });
+    bot.instance.addChatPattern('summon_to_channel', /Summoned to server(\\d+) by CONSOLE/m, { parse: true, repeat: true });
+    bot.instance.addChatPatternSet('tpa', [/\[系統] (.+) 想要傳送到 你 的位置/m, / 可點擊按鈕 --> \[接受] \[拒絕]/m], { parse: true, repeat: true });
+    bot.instance.addChatPatternSet('tph', [/\[系統] (.+) 想要你傳送到 該玩家 的位置/m, / 可點擊按鈕 --> \[接受] \[拒絕]/m], { parse: true, repeat: true });
+    bot.instance.addChatPattern('death_back', /使用 \/back 返回死亡位置。/, { parse: false, repeat: true });
+    
+    const cmds = ['work', 'stop', 'state', 'listAction', 'addAction ', 'exec ', 'draw', 'csafe', 'exit', 'help'];
+    for(let cmd of cmds){
+      if(!cfg.Control.Command[cmd]) continue;
+      bot.instance.addChatPattern(cmd, new RegExp(`\\[${cfg.Control.channel}] \\[-] <(.+)> \\/\\/${cmd}([\\w\\d\\s\\/]*)$`, 'm'), { parse: true, repeat: true });
+    }
+
     console.log("Spawn");
     console.log("Start !!!");
 
     // wait for finishing loading chunks
     await bot.instance.waitForChunksToLoad();
-    await sleep(1000);
+    await bot.instance.waitForTicks(20);
     await run_all_tasks();
   });
 }
