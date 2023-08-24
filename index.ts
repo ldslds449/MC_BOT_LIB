@@ -98,8 +98,8 @@ function createTasks(act:Action[]):{[name:string]:((bot:mineflayer.Bot) => Promi
       const config:eatConfig = {
         food: cfg.AutoEat.foods,
         threshold:{
-          health: cfg.AutoEat.Threshold.food,
-          food: cfg.AutoEat.Threshold.health
+          health: cfg.AutoEat.Threshold.health,
+          food: cfg.AutoEat.Threshold.food
         },
         onlyQuickBarSlot: cfg.AutoEat.onlyQuickBarSlot,
         offhand: cfg.AutoEat.offhand
@@ -480,6 +480,7 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
                   }
                 }
               }
+              // bot.instance.awaitMessage();
               bot.instance.on("message", waitResp);
               bot.instance.chat('/csafe');
             }).finally(() => {
