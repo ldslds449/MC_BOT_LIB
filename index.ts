@@ -199,7 +199,7 @@ function createTasks(act:Action[]):{[name:string]:((bot:mineflayer.Bot) => Promi
               debug(`Decrease Y from ${progressive_y+1} to ${progressive_y}`);
               return;
             }
-            // bot.chat("I can't find any target, so I quit.");
+            bot.chat("I can't find any target, so I quit.");
             debug("I can't find any target, so I quit.");
             // @ts-ignore
             bot.emit('finish', 'No target, Bye ~~');
@@ -272,6 +272,10 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
       running = false;
     };
   }
+
+  async function waitForLoadPlayerInfo():Promise<void>{
+    await bot.instance.awaitMessage('[系統] 讀取人物成功。');
+  }
   
   // set event listener
   bot.instance.once('login', () => {
@@ -321,6 +325,7 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
     const channel = matches[0][0];
     debug(`Transfered to channel ${channel}`);
     bot.instance.chat(`Transfered to channel ${channel}`);
+    await onlyWaitForSpecTime(waitForLoadPlayerInfo(), 10*1000, null);
     if(cfg.Action.autoWorkAfterWait){
       if(prev_keep_running){
         debug('Start actions');
@@ -375,11 +380,15 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
       debug('Wait for stop...');
       await bot.instance.waitForTicks(10);
     }
+    await bot.instance.waitForTicks(60);
     debug(`backAfterDead: ${cfg.Action.backAfterDead}`);
     if(cfg.Action.backAfterDead){
       bot.instance.chat("I'm dead. Back to previous location.");
       const success = onlyWaitForSpecTime(new Promise<void>((resolve) => {
-        bot.instance.once('forcedMove', () => resolve());
+        bot.instance.once('forcedMove', async () => {
+          await onlyWaitForSpecTime(waitForLoadPlayerInfo(), 10*1000, null);
+          resolve();
+        });
         bot.instance.chat('/back');
       }), 10*1000, null);
       if(success){
@@ -595,10 +604,10 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
   })
 
   bot.instance.once('spawn', async () => {
-    await bot.instance.awaitMessage('[系統] 讀取人物成功。');
+    await waitForLoadPlayerInfo();
 
     bot.instance.addChatPattern('summon_to_waiting_room', /Summoned to wait by CONSOLE/m, { parse: false, repeat: true });
-    bot.instance.addChatPattern('summon_to_channel', /Summoned to server(\\d+) by CONSOLE/m, { parse: true, repeat: true });
+    bot.instance.addChatPattern('summon_to_channel', /Summoned to server(\d+) by CONSOLE/m, { parse: true, repeat: true });
     bot.instance.addChatPatternSet('tpa', [/\[系統] (.+) 想要傳送到 你 的位置/m, / 可點擊按鈕 --> \[接受] \[拒絕]/m], { parse: true, repeat: true });
     bot.instance.addChatPatternSet('tph', [/\[系統] (.+) 想要你傳送到 該玩家 的位置/m, / 可點擊按鈕 --> \[接受] \[拒絕]/m], { parse: true, repeat: true });
     bot.instance.addChatPattern('death_back', /使用 \/back 返回死亡位置。/, { parse: false, repeat: true });

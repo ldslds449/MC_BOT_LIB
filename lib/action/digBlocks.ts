@@ -107,10 +107,10 @@ async function changeTool(bot:mineflayer.Bot, tool:string, durability_percentage
           if(old_tool){
             debug(`Old Tool: ${old_tool.displayName} At ${old_tool.slot}`);
             // transfer
-            bot.clickWindow(old_tool.slot, 0, 0);
+            await bot.clickWindow(old_tool.slot, 0, 0);
             const ender_empty_slot = ender_window.firstEmptySlotRange(0, ender_window.inventoryStart);
             debug(`Old Tool Destination: ${ender_empty_slot}`);
-            bot.clickWindow(ender_empty_slot, 0, 0);
+            await bot.clickWindow(ender_empty_slot, 0, 0);
           }else{
             debug('No old tool');
           }
@@ -118,11 +118,11 @@ async function changeTool(bot:mineflayer.Bot, tool:string, durability_percentage
           // withdraw new tool
           debug(`Withdraw New Tool: ${new_tool.displayName} (${new_tool.type}, ${new_tool.metadata})`);
           // transfer
-          bot.clickWindow(new_tool.slot, 0, 0);
+          await bot.clickWindow(new_tool.slot, 0, 0);
           const ender_empty_slot = ender_window.firstEmptySlotRange(ender_window.inventoryStart, ender_window.inventoryEnd);
           if(!ender_empty_slot) throw Error('My Inventory is Full');
           debug(`New Tool Destination: ${ender_empty_slot}`);
-          bot.clickWindow(ender_empty_slot, 0, 0);
+          await bot.clickWindow(ender_empty_slot, 0, 0);
           bot.closeWindow(ender_window);
 
           // equip new tool
@@ -149,7 +149,7 @@ async function changeTool(bot:mineflayer.Bot, tool:string, durability_percentage
   }
 }
 
-function findBlocks(bot:mineflayer.Bot, target_blocks:string[]|undefined, limits:number[], range:Vec3[], canDig:boolean):Block[] {
+function findBlocks(bot:mineflayer.Bot, target_blocks:string[], limits:number[], range:Vec3[], canDig:boolean):Block[] {
   const targets:Block[] = [];
   const loc = bot.entity.position;
   for(let x = -limits[0]; x <= limits[0]; ++x){
@@ -161,7 +161,7 @@ function findBlocks(bot:mineflayer.Bot, target_blocks:string[]|undefined, limits
         const block = bot.blockAt(loc.offset(x, y, z));
         if(block == undefined) continue;
         if(canDig && !bot.canDigBlock(block)) continue;
-        if(target_blocks == undefined || target_blocks.includes(block.name)){
+        if(!target_blocks || target_blocks.includes(block.name)){
           targets.push(block);
         }
       }
@@ -385,6 +385,7 @@ export async function *digBlocks(bot:mineflayer.Bot, config:digBlocksConfig) {
         debug(err); // Handle errors, if any
       }
     }
+    await bot.waitForTicks(40);  // wait for dropped item falling
 
     // wait for finish falling
     debug("Wait for finish falling");
@@ -447,22 +448,27 @@ export async function *digBlocks(bot:mineflayer.Bot, config:digBlocksConfig) {
           bot.registry.itemsByName[config.item_container].id, null, false);
       
       if(box){
+        await bot.waitForTicks(20);
         debug(`Box Count: ${box.count}`);
         debug("Equip Box");
         await bot.equip(box, 'hand');
+        debug(`Bot Location: ${bot.entity.position}`);
         debug("Find Location");
-        const loc_block_candidates = findBlocks(bot, undefined, [config.maxDistance, 2, config.maxDistance],
-          [config.range[0].offset(-1,-1,-1), config.range[1].offset(1,1,1)], true);
+        let loc_block_candidates = findBlocks(bot, null, [config.maxDistance, 2, config.maxDistance],
+          [config.range[0].offset(0,-1,0), config.range[1]], true);
+        loc_block_candidates.sort((a:Block, b:Block):number => {
+          return Math.abs(bot.entity.position.y-a.position.y) - Math.abs(bot.entity.position.y-b.position.y);
+        });
         let loc_block:Block = undefined, place_result = false;
         debug(`Location Candidate: ${loc_block_candidates.length}`);
+        debug(loc_block_candidates.map((a:Block) => `Block: ${a.displayName} At ${a.position}`));
         for(let i = 0; i < loc_block_candidates.length; ++i){
           if(loc_block_candidates[i].name != 'air' && 
               bot.blockAt(loc_block_candidates[i].position.offset(0, 1, 0)).name == 'air' &&
               bot.blockAt(loc_block_candidates[i].position.offset(0, 2, 0)).name == 'air' &&
               loc_block_candidates[i].name != bot.registry.itemsByName[config.item_container].name &&
-              bot.canSeeBlock(loc_block_candidates[i]) &&
-              bot.entity.position.distanceTo(loc_block_candidates[i].position) > 0 &&
-              bot.entity.position.distanceTo(loc_block_candidates[i].position) <= 3.5){
+              // bot.canSeeBlock(loc_block_candidates[i]) &&
+              bot.entity.position.floored().xzDistanceTo(loc_block_candidates[i].position) > 0){
             
             loc_block = loc_block_candidates[i];
             place_result = await new Promise<boolean>(async (resolve) => {
