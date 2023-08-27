@@ -312,8 +312,8 @@ export async function *digBlocks(bot:mineflayer.Bot, config:digBlocksConfig) {
 
     // find blocks with a larger range
     const offset = 16;
-    const max_retry_x = Math.floor((Math.abs(config.range[1].x-config.range[0].x+1)-offset) / offset);
-    const max_retry_z = Math.floor((Math.abs(config.range[1].z-config.range[0].z+1)-offset) / offset);
+    const max_retry_x = Math.floor(Math.max(0, (Math.abs(config.range[1].x-config.range[0].x+1)-offset)) / offset);
+    const max_retry_z = Math.floor(Math.max(0, (Math.abs(config.range[1].z-config.range[0].z+1)-offset)) / offset);
     const max_retry = max_retry_x * max_retry_z;
     debug(`Max Retry: ${max_retry}`);
 

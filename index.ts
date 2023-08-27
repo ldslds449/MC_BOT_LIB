@@ -15,6 +15,7 @@ import { digBlocks, digBlocksConfig } from './lib/action/digBlocks';
 import { autoEat, eatConfig } from './lib/action/autoEat';
 // import { sleep } from './lib/util/time';
 import { inside } from './lib/util/inside';
+import { parseTabInfo, tabInfo } from './lib/util/parse';
 import { draw } from './lib/viewer/draw';
 import { onlyWaitForSpecTime } from './lib/util/time';
 
@@ -178,6 +179,15 @@ function createTasks(act:Action[]):{[name:string]:((bot:mineflayer.Bot) => Promi
           return Number.POSITIVE_INFINITY;
         }];
         bot.pathfinder.setMovements(defaultMove);
+
+        // check position
+        const tab = parseTabInfo(bot.tablist.header.toString());
+        debug(`Channel: ${tab.position.channel}, World: ${tab.position.world}`);
+        if(tab.position.channel != cfg.DigBlocks.channel || 
+          tab.position.world != cfg.DigBlocks.world){
+          debug(tab);
+          throw Error(`Detect Error Channel (${tab.position.channel}) & World (${tab.position.world})`);
+        }
 
         // set y
         if(cfg.DigBlocks.progressive){
@@ -567,6 +577,28 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
     }
   });
   // @ts-ignore
+  bot.instance.on('chat:tab', (matches) => {
+    const player = matches[0][0];
+    debug(`Command: Exit by ${player}`);
+    if(cfg.Control.listType == 'white' && cfg.Control.list.includes(player) ||
+      cfg.Control.listType == 'black' && !cfg.Control.list.includes(player)){
+        const content = bot.instance.tablist.header.toString();
+        const tab:tabInfo = parseTabInfo(content);
+        
+        let response:string = "";
+        response += `Territory: ${tab.territory.remain}/${tab.territory.total}, `;
+        response += `Fly: ${tab.fly.remain}/${tab.fly.total} (+${tab.fly.add}/${tab.fly.period}s), `;
+        response += `Emerald: ${tab.emerald}, `;
+        response += `Villager Ingot: ${tab.villager_ingot.balance} (${tab.villager_ingot.price} Emerald), `;
+        response += `Location: Channel ${tab.position.channel} ${tab.position.world} XYZ=(${tab.position.x}, ${tab.position.y}, ${tab.position.z}), `;
+        response += `Time: ${tab.time.hour}:${tab.time.minute} ${tab.time.AMPM}, `;
+        response += `Channel Player: ${tab.player.channelPlayerCount}, `;
+        response += `Total Player: ${tab.player.totalPlayerCount}/${tab.player.playerLimit}`;
+
+        bot.instance.chat(response);
+    }
+  });
+  // @ts-ignore
   bot.instance.on('chat:help', (matches) => {
     const player = matches[0][0];
     debug(`Command: Help by ${player}`);
@@ -612,7 +644,7 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
     bot.instance.addChatPatternSet('tph', [/\[系統] (.+) 想要你傳送到 該玩家 的位置/m, / 可點擊按鈕 --> \[接受] \[拒絕]/m], { parse: true, repeat: true });
     bot.instance.addChatPattern('death_back', /使用 \/back 返回死亡位置。/, { parse: false, repeat: true });
     
-    const cmds = ['work', 'stop', 'state', 'listAction', 'addAction ', 'exec ', 'draw', 'csafe', 'exit', 'help'];
+    const cmds = ['work', 'stop', 'state', 'listAction', 'addAction ', 'exec ', 'draw', 'csafe', 'exit', 'tab', 'help'];
     for(let cmd of cmds){
       if(!cfg.Control.Command[cmd]) continue;
       bot.instance.addChatPattern(cmd, new RegExp(`\\[${cfg.Control.channel}] \\[-] <(.+)> \\/\\/${cmd}([\\w\\d\\s\\/]*)$`, 'm'), { parse: true, repeat: true });
