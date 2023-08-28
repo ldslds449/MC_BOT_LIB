@@ -13,7 +13,7 @@ import { attackEntity, attackConfig } from './lib/action/attack';
 // import { treeChop } from './lib/action/treeChop';
 import { digBlocks, digBlocksConfig } from './lib/action/digBlocks';
 import { autoEat, eatConfig } from './lib/action/autoEat';
-// import { sleep } from './lib/util/time';
+import { sleep } from './lib/util/time';
 import { inside } from './lib/util/inside';
 import { parseTabInfo, tabInfo } from './lib/util/parse';
 import { draw } from './lib/viewer/draw';
@@ -160,7 +160,7 @@ function createTasks(act:Action[]):{[name:string]:((bot:mineflayer.Bot) => Promi
       };
       
       let progressive_y:number = upper_corner.y;
-      let asyncGen:AsyncGenerator<boolean, boolean, unknown> = undefined;
+      let asyncGen:AsyncGenerator<boolean, boolean, unknown> = null;
       tasks.DigBlocks = async (bot:mineflayer.Bot) => {
         // set move strategy for bot
         let defaultMove = new Movements(bot);
@@ -183,8 +183,8 @@ function createTasks(act:Action[]):{[name:string]:((bot:mineflayer.Bot) => Promi
         // check position
         const tab = parseTabInfo(bot.tablist.header.toString());
         debug(`Channel: ${tab.position.channel}, World: ${tab.position.world}`);
-        if(tab.position.channel != cfg.DigBlocks.channel || 
-          tab.position.world != cfg.DigBlocks.world){
+        if((tab.position.channel && tab.position.channel != cfg.DigBlocks.channel) || 
+          (tab.position.world && tab.position.world != cfg.DigBlocks.world)){
           debug(tab);
           throw Error(`Detect Error Channel (${tab.position.channel}) & World (${tab.position.world})`);
         }
@@ -195,9 +195,11 @@ function createTasks(act:Action[]):{[name:string]:((bot:mineflayer.Bot) => Promi
           config.range[0].y = progressive_y;
         }
         
-        if(asyncGen == undefined){
+        debug(`asyncGen == null: ${asyncGen == null}`);
+        if(asyncGen == null){
           asyncGen = digBlocks(bot, config);
         }
+        debug('Start digging');
         const success = await asyncGen.next().then((r) => { return r.value; });
         debug(`Success ${success}`);
         if(success == undefined){
@@ -262,6 +264,7 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
 
   // run_all_tasks
   let keep_running = true, running = false;
+  let isFinish = false, isDisconnect = false, isError = false;
   async function run_all_tasks(){
     keep_running = true;
 
@@ -269,6 +272,7 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
     try{
       while(keep_running){
         running = true;
+        if(isFinish || isDisconnect || isError) break;
         for(const act in tasks){
           if(!keep_running) break;
           console.log(`> ${act} <`);
@@ -276,11 +280,13 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
         }
       }
     }catch(err){ 
-      console.log(err); debug(err); 
+      debug('Task Error');
+      debug(err); 
     }finally{
+      debug('Task Finish');
       keep_running = false;
       running = false;
-    };
+    }
   }
 
   async function waitForLoadPlayerInfo():Promise<void>{
@@ -291,12 +297,17 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
   bot.instance.once('login', () => {
     console.log("Login Success")
   });
-  bot.instance.on("error", (err) => {
+  bot.instance.on("error", async (err) => {
     console.error(err);
-    bot.instance.end(err.toString());
+    debug(err);
+    isError = true;
+    // while(running){
+    //   debug('Error: Wait for stop...');
+    //   await sleep(1000);
+    // }
   });
   bot.instance.on("kicked", (err) => {
-    console.error(err);
+    debug(err);
   });
   bot.instance.on('death', () => {
     debug('Death');
@@ -386,11 +397,11 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
     prev_keep_running = keep_running;
     keep_running = false;
     // wait for stop
-    while(running){
-      debug('Wait for stop...');
-      await bot.instance.waitForTicks(10);
-    }
-    await bot.instance.waitForTicks(60);
+    // while(running){
+    //   debug('Death: Wait for stop...');
+    //   await bot.instance.waitForTicks(10);
+    // }
+    await sleep(6000);
     debug(`backAfterDead: ${cfg.Action.backAfterDead}`);
     if(cfg.Action.backAfterDead){
       bot.instance.chat("I'm dead. Back to previous location.");
@@ -429,7 +440,7 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
           if(running){
             // wait for stop
             while(running){
-              debug('Wait for stop...');
+              debug('Work: Wait for stop...');
               await bot.instance.waitForTicks(10);
             }
           }
@@ -450,7 +461,7 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
         bot.instance.chat(`Repley ${player}: Stop OK`);
         // wait for stop
         while(running){
-          debug('Wait for stop...');
+          debug('Stop: Wait for stop...');
           await bot.instance.waitForTicks(10);
         }
         bot.instance.chat(`Stop successfully.`);
@@ -617,7 +628,6 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
     debug(`Message: ${text}`);
   });
 
-  let isFinish = false;
   // @ts-ignore
   bot.instance.on('finish', (reason:string) => {
     debug(reason);
@@ -627,11 +637,21 @@ async function routine(tasks:{[name:string]:((bot:mineflayer.Bot) => Promise<any
 
   // Reconnect
   let reconnect_time = 0;
-  bot.instance.on('end', () => {
+  bot.instance.on('end', async () => {
     debug('Disconnect');
+    isDisconnect = true;
+    // while(running){
+    //   debug('Disconnect: Wait for stop...');
+    //   await sleep(1000);
+    // }
+    debug(`Reconnect Enable: ${cfg.Reconnect.enable}, Reconnect Time: ${reconnect_time}/${cfg.Reconnect.maxLimit}`);
     if(!isFinish && cfg.Reconnect.enable && 
       (reconnect_time < cfg.Reconnect.maxLimit || cfg.Reconnect.maxLimit == -1)){
-      setTimeout(() => { routine(tasks); }, cfg.Reconnect.delay*1000);
+      keep_running = false;
+      debug(`Waiting delay... ${cfg.Reconnect.delay} s`);
+      setTimeout(() => { 
+        routine(createTasks(actions)); 
+      }, cfg.Reconnect.delay*1000);
     }
   })
 

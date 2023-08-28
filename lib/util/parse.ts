@@ -1,3 +1,4 @@
+const debug = require('debug')('MC_BOT_LIB:parse');
 
 export interface tabInfo{
   territory: {
@@ -45,36 +46,60 @@ export function parseTabInfo(content:string){
   let matches:RegExpMatchArray, tab = {} as tabInfo;
   matches = content.match(territory_regex);
   tab.territory = {} as tabInfo["territory"];
-  tab.territory.remain = Number(matches[1].replace(/,/g, ''));
-  tab.territory.total = Number(matches[2].replace(/,/g, ''));
+  if(matches && matches.length == 3){
+    tab.territory.remain = Number(matches[1].replace(/,/g, ''));
+    tab.territory.total = Number(matches[2].replace(/,/g, ''));
+  }else{
+    debug(`PARSE ERROR: ${content}`);
+  }
   matches = content.match(fly_regex);
   tab.fly = {} as tabInfo["fly"];
-  tab.fly.remain = Number(matches[1].replace(/,/g, ''));
-  tab.fly.total = Number(matches[2].replace(/,/g, ''));
-  tab.fly.period = Number(matches[3].replace(/,/g, ''));
-  tab.fly.add = Number(matches[4].replace(/,/g, ''));
+  if(matches && matches.length == 5){
+    tab.fly.remain = Number(matches[1].replace(/,/g, ''));
+    tab.fly.total = Number(matches[2].replace(/,/g, ''));
+    tab.fly.period = Number(matches[3].replace(/,/g, ''));
+    tab.fly.add = Number(matches[4].replace(/,/g, ''));
+  }else{
+    debug(`PARSE ERROR: ${content}`);
+  }
   matches = content.match(emerald_regex);
-  tab.emerald = Number(matches[1].replace(/,/g, ''));
   tab.villager_ingot = {} as tabInfo["villager_ingot"];
-  tab.villager_ingot.balance = Number(matches[2].replace(/,/g, ''));
-  tab.villager_ingot.price = Number(matches[3].replace(/,/g, ''));
+  if(matches && matches.length >= 4){
+    tab.emerald = Number(matches[1].replace(/,/g, ''));
+    tab.villager_ingot.balance = Number(matches[2].replace(/,/g, ''));
+    tab.villager_ingot.price = Number(matches[3].replace(/,/g, ''));
+  }else{
+    debug(`PARSE ERROR: ${content}`);
+  }
   matches = content.match(location_regex);
   tab.position = {} as tabInfo["position"];
-  tab.position.channel = Number(matches[1].replace(/,/g, ''));
-  tab.position.world = matches[2];
-  tab.position.x = Number(matches[6].replace(/,/g, ''));
-  tab.position.y = Number(matches[7].replace(/,/g, ''));
-  tab.position.z = Number(matches[8].replace(/,/g, ''));
   tab.time = {} as tabInfo["time"];
-  tab.time.hour = Number(matches[3]);
-  tab.time.minute = Number(matches[4]);
-  tab.time.AMPM = matches[5];
+  if(matches && matches.length >= 9){
+    tab.position.channel = Number(matches[1].replace(/,/g, ''));
+    tab.position.world = matches[2];
+    tab.position.x = Number(matches[6].replace(/,/g, ''));
+    tab.position.y = Number(matches[7].replace(/,/g, ''));
+    tab.position.z = Number(matches[8].replace(/,/g, ''));
+    tab.time.hour = Number(matches[3]);
+    tab.time.minute = Number(matches[4]);
+    tab.time.AMPM = matches[5];
+  }else{
+    debug(`PARSE ERROR: ${content}`);
+  }
   matches = content.match(channel_player_count_regex);
   tab.player = {} as tabInfo["player"];
-  tab.player.channelPlayerCount = Number(matches[1].replace(/,/g, ''));
+  if(matches && matches.length >= 2){
+    tab.player.channelPlayerCount = Number(matches[1].replace(/,/g, ''));
+  }else{
+    debug(`PARSE ERROR: ${content}`);
+  }
   matches = content.match(player_count_regex);
-  tab.player.totalPlayerCount = Number(matches[1].replace(/,/g, ''));
-  tab.player.playerLimit = Number(matches[2].replace(/,/g, ''));
+  if(matches && matches.length >= 3){
+    tab.player.totalPlayerCount = Number(matches[1].replace(/,/g, ''));
+    tab.player.playerLimit = Number(matches[2].replace(/,/g, ''));
+  }else{
+    debug(`PARSE ERROR: ${content}`);
+  }
 
   return tab;
 }
